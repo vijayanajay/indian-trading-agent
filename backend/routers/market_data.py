@@ -26,6 +26,10 @@ def get_quote(ticker: str):
     if hist.empty:
         return {"error": f"No data found for {symbol}"}
 
+    hist = hist.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+    if hist.empty:
+        return {"error": f"No data found for {symbol}"}
+
     current = hist.iloc[-1]
     prev_close = info.get("previousClose") or (hist.iloc[-2]["Close"] if len(hist) > 1 else current["Close"])
     price = current["Close"]
@@ -61,6 +65,10 @@ def get_chart_data(
     t = yf.Ticker(symbol)
     hist = t.history(period=period, interval=interval)
 
+    if hist.empty:
+        return {"error": f"No data for {symbol}", "data": []}
+
+    hist = hist.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
     if hist.empty:
         return {"error": f"No data for {symbol}", "data": []}
 
@@ -174,6 +182,9 @@ def get_market_status():
     banknifty_hist = banknifty.history(period="2d")
 
     def extract_quote(hist, info_ticker):
+        if hist.empty:
+            return {"price": 0, "change": 0, "change_percent": 0}
+        hist = hist.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
         if hist.empty:
             return {"price": 0, "change": 0, "change_percent": 0}
         current = hist.iloc[-1]

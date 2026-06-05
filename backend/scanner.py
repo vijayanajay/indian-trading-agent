@@ -80,7 +80,10 @@ def _fetch_stock_data(ticker: str, period: str = "3mo") -> dict | None:
         symbol = f"{ticker}.NS"
         t = yf.Ticker(symbol)
         hist = t.history(period=period)
-        if hist.empty or len(hist) < 5:
+        if hist.empty:
+            return None
+        hist = hist.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+        if len(hist) < 5:
             return None
         return {
             "ticker": ticker,

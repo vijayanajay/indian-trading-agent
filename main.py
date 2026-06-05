@@ -16,10 +16,10 @@ load_dotenv(override=True)
 config = DEFAULT_CONFIG.copy()
 
 # LLM settings — Anthropic Claude
-config["llm_provider"] = "anthropic"
-config["deep_think_llm"] = "claude-sonnet-4-20250514"   # Use Sonnet for cost-efficiency; switch to Opus for complex analysis
-config["quick_think_llm"] = "claude-sonnet-4-20250514"
-config["anthropic_effort"] = "high"
+config["llm_provider"] = "google"
+config["deep_think_llm"] = "gemini-3.5-flash"
+config["quick_think_llm"] = "gemini-3.5-flash"
+config["google_thinking_level"] = "high"
 
 # Debate settings
 config["max_debate_rounds"] = 1

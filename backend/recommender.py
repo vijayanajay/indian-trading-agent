@@ -96,7 +96,10 @@ def _analyze_stock(ticker: str) -> dict | None:
         symbol = f"{ticker}.NS"
         t = yf.Ticker(symbol)
         hist = t.history(period="6mo")
-        if hist.empty or len(hist) < 50:
+        if hist.empty:
+            return None
+        hist = hist.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+        if len(hist) < 50:
             return None
 
         closes = hist["Close"].values

@@ -28,7 +28,10 @@ def _fetch_history(ticker: str, days: int = 90):
         symbol = f"{ticker}.NS"
         t = yf.Ticker(symbol)
         hist = t.history(period=f"{days}d")
-        if hist.empty or len(hist) < 30:
+        if hist.empty:
+            return None
+        hist = hist.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+        if len(hist) < 30:
             return None
         return {"ticker": ticker, "symbol": symbol, "hist": hist}
     except Exception:
