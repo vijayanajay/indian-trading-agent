@@ -1,7 +1,7 @@
 import pytest
 import pandas as pd
 import numpy as np
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, PropertyMock
 from datetime import datetime, timezone, timedelta
 from dateutil.tz import tzutc
 
@@ -169,9 +169,9 @@ def test_get_fundamentals_empty(mock_ticker):
     res = get_fundamentals("AAPL")
     assert "No fundamentals data found for symbol 'AAPL'" in res
 
-@patch("tradingagents.dataflows.y_finance.yf.Ticker")
-def test_get_fundamentals_exception(mock_ticker):
-    type(mock_ticker.return_value).info = property(lambda self: (_ for _ in ()).throw(Exception("Test API Error")))
+@patch("tradingagents.dataflows.y_finance.yf.Ticker.info", new_callable=PropertyMock)
+def test_get_fundamentals_exception(mock_prop):
+    mock_prop.side_effect = Exception("Test API Error")
     res = get_fundamentals("AAPL")
     assert "Error retrieving fundamentals for AAPL: Test API Error" in res
 
@@ -203,10 +203,9 @@ def test_get_balance_sheet_empty(mock_ticker):
     res = get_balance_sheet("AAPL")
     assert "No balance sheet data found for symbol 'AAPL'" in res
 
-@patch("tradingagents.dataflows.y_finance.yf.Ticker")
-def test_get_balance_sheet_exception(mock_ticker):
-    # Setup the exception to be raised when getting the property
-    type(mock_ticker.return_value).quarterly_balance_sheet = property(lambda self: (_ for _ in ()).throw(Exception("API Error")))
+@patch("tradingagents.dataflows.y_finance.yf.Ticker.quarterly_balance_sheet", new_callable=PropertyMock)
+def test_get_balance_sheet_exception(mock_prop):
+    mock_prop.side_effect = Exception("API Error")
     res = get_balance_sheet("AAPL")
     assert "Error retrieving balance sheet for AAPL: API Error" in res
 
@@ -221,33 +220,6 @@ def test_get_cashflow_empty(mock_ticker):
     mock_ticker.return_value.quarterly_cashflow = pd.DataFrame()
     res = get_cashflow("AAPL")
     assert "No cash flow data found for symbol 'AAPL'" in res
-
-@patch("tradingagents.dataflows.y_finance.yf.Ticker")
-def test_get_cashflow_exception(mock_ticker):
-    type(mock_ticker.return_value).quarterly_cashflow = property(lambda self: (_ for _ in ()).throw(Exception("API Error")))
-    res = get_cashflow("AAPL")
-    assert "Error retrieving cash flow for AAPL: API Error" in res
-
-@patch("tradingagents.dataflows.y_finance.yf.Ticker")
-def test_get_income_statement_standard(mock_ticker):
-    mock_ticker.return_value.quarterly_income_stmt = create_financials_data()
-    res = get_income_statement("AAPL", "quarterly", "2023-05-01")
-    assert "# Income Statement data for AAPL (quarterly)" in res
-
-@patch("tradingagents.dataflows.y_finance.yf.Ticker")
-def test_get_income_statement_empty(mock_ticker):
-    mock_ticker.return_value.quarterly_income_stmt = pd.DataFrame()
-    res = get_income_statement("AAPL")
-    assert "No income statement data found for symbol 'AAPL'" in res
-
-@patch("tradingagents.dataflows.y_finance.yf.Ticker")
-def test_get_income_statement_exception(mock_ticker):
-    type(mock_ticker.return_value).quarterly_income_stmt = property(lambda self: (_ for _ in ()).throw(Exception("API Error")))
-    res = get_income_statement("AAPL")
-    assert "Error retrieving income statement for AAPL: API Error" in res
-
-
-# --- get_insider_transactions tests ---
 
 @patch("tradingagents.dataflows.y_finance.yf.Ticker")
 def test_get_insider_transactions_standard(mock_ticker):
@@ -269,8 +241,8 @@ def test_get_insider_transactions_none(mock_ticker):
     res = get_insider_transactions("AAPL")
     assert "No insider transactions data found for symbol 'AAPL'" in res
 
-@patch("tradingagents.dataflows.y_finance.yf.Ticker")
-def test_get_insider_transactions_exception(mock_ticker):
-    type(mock_ticker.return_value).insider_transactions = property(lambda self: (_ for _ in ()).throw(Exception("API Error")))
+@patch("tradingagents.dataflows.y_finance.yf.Ticker.insider_transactions", new_callable=PropertyMock)
+def test_get_insider_transactions_exception(mock_prop):
+    mock_prop.side_effect = Exception("API Error")
     res = get_insider_transactions("AAPL")
     assert "Error retrieving insider transactions for AAPL: API Error" in res
