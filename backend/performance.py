@@ -314,11 +314,26 @@ def measure_sr_bounce_strategy(
 
 def _summarize_trades(trades: list[dict], hold_days: list[int], strategy_name: str) -> dict:
     """Calculate win rate, avg return, best/worst trade for each hold period."""
+    STRATEGY_KEYS = {
+        "Gap Up/Down Strategy": "gap",
+        "Volume Spike Strategy": "volume",
+        "Breakout Strategy": "breakout",
+        "Support Bounce Strategy": "sr_bounce",
+    }
+
     if not trades:
+        strategy_key = STRATEGY_KEYS.get(strategy_name)
+        if strategy_key:
+            try:
+                from backend.db import set_setting
+                set_setting(f"strategy_status_{strategy_key}", "tradeable")
+            except Exception:
+                pass
         return {
             "strategy": strategy_name,
             "total_signals": 0,
             "hold_periods": {},
+            "untradeable": False,
             "trades": [],
         }
 
@@ -335,18 +350,81 @@ def _summarize_trades(trades: list[dict], hold_days: list[int], strategy_name: s
         losses = sum(1 for r in valid_returns if r < 0)
         total = len(valid_returns)
 
+        # Sharpe ratio
+        ann_factor = 252.0 / hd
+        mean_ret = float(np.mean(valid_returns))
+        std_ret = float(np.std(valid_returns))
+        ann_mean = mean_ret * ann_factor
+        ann_std = std_ret * np.sqrt(ann_factor)
+        sharpe = (ann_mean - 6.0) / ann_std if ann_std > 0 else 0.0
+
+        # Sortino ratio
+        downside_returns = [r for r in valid_returns if r < 0]
+        downside_std = float(np.std(downside_returns)) if downside_returns else 0.0
+        ann_downside_std = downside_std * np.sqrt(ann_factor)
+        sortino = (ann_mean - 6.0) / ann_downside_std if ann_downside_std > 0 else 0.0
+
+        # Maximum drawdown
+        dated_returns = []
+        for t in trades:
+            if key in t.get("returns", {}):
+                date_str = t.get("date", "")
+                ret_val = t["returns"][key]
+                if ret_val is not None:
+                    dated_returns.append((date_str, ret_val))
+        dated_returns.sort(key=lambda x: x[0])
+        sorted_rets = [x[1] for x in dated_returns]
+
+        if sorted_rets:
+            cum_rets = np.cumsum(sorted_rets)
+            equity = 100.0 + cum_rets
+            peaks = np.maximum.accumulate(equity)
+            peaks = np.where(peaks <= 0, 1.0, peaks)
+            dds = (peaks - equity) / peaks * 100.0
+            max_dd = float(np.max(dds))
+        else:
+            max_dd = 0.0
+
+        # Gain-to-pain ratio
+        pos_sum = sum(r for r in valid_returns if r > 0)
+        neg_sum_abs = abs(sum(r for r in valid_returns if r < 0))
+        gain_to_pain = float(pos_sum / neg_sum_abs) if neg_sum_abs > 0 else 0.0
+
         hold_periods[key] = {
             "hold_days": hd,
             "total_signals": total,
             "wins": wins,
             "losses": losses,
             "win_rate": round(wins / total * 100, 1) if total else 0,
-            "avg_return": round(float(np.mean(valid_returns)), 2),
+            "avg_return": round(mean_ret, 2),
             "median_return": round(float(np.median(valid_returns)), 2),
             "best_trade": round(max(valid_returns), 2),
             "worst_trade": round(min(valid_returns), 2),
-            "std_dev": round(float(np.std(valid_returns)), 2),
+            "std_dev": round(std_ret, 2),
+            "sharpe": round(sharpe, 2),
+            "sortino": round(sortino, 2),
+            "max_drawdown": round(max_dd, 2),
+            "gain_to_pain": round(gain_to_pain, 2),
         }
+
+    is_untradeable = False
+    for stats in hold_periods.values():
+        s = stats.get("sharpe", 0.0)
+        so = stats.get("sortino", 0.0)
+        dd = stats.get("max_drawdown", 0.0)
+        if stats.get("total_signals", 0) > 0:
+            if s < 1.0 or so < 1.0 or dd > 15.0:
+                is_untradeable = True
+                break
+
+    strategy_key = STRATEGY_KEYS.get(strategy_name)
+    if strategy_key:
+        try:
+            from backend.db import set_setting
+            status_val = "untradeable" if is_untradeable else "tradeable"
+            set_setting(f"strategy_status_{strategy_key}", status_val)
+        except Exception as e:
+            print(f"[Performance] Failed to save strategy status to DB: {e}", flush=True)
 
     # Sort trades by best performance (using first hold period)
     first_key = f"day_{hold_days[0]}"
@@ -360,6 +438,7 @@ def _summarize_trades(trades: list[dict], hold_days: list[int], strategy_name: s
         "strategy": strategy_name,
         "total_signals": len(trades),
         "hold_periods": hold_periods,
+        "untradeable": is_untradeable,
         "trades": sorted_trades[:100],  # Top 100 trades (wins + losses interleaved)
     }
 

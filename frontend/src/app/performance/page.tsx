@@ -194,20 +194,35 @@ export default function PerformancePage() {
             const rating = day3 ? getRatingLabel(day3.win_rate, day3.avg_return) : null;
 
             return (
-              <Card key={key} className={colorClass.split(" ")[2]}>
+              <Card key={key} className={`${colorClass.split(" ")[2]} ${data.untradeable ? "border-red-300 shadow-sm" : ""}`}>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-lg flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Icon className={`h-5 w-5 ${colorClass.split(" ")[0]}`} />
                       {strategyNames[key]}
                     </div>
-                    {rating && <Badge variant="outline" className={rating.color}>{rating.label}</Badge>}
+                    <div className="flex gap-1.5 items-center">
+                      {data.untradeable && (
+                        <Badge variant="destructive" className="bg-red-600 text-white animate-pulse">
+                          UNTRADEABLE
+                        </Badge>
+                      )}
+                      {rating && <Badge variant="outline" className={rating.color}>{rating.label}</Badge>}
+                    </div>
                   </CardTitle>
                   <p className="text-xs text-muted-foreground">
                     {data.total_signals} signals detected over {lookbackDays} days
                   </p>
                 </CardHeader>
                 <CardContent>
+                  {data.untradeable && (
+                    <div className="mb-3 p-2.5 rounded bg-red-100/50 border border-red-200 text-xs text-red-800 flex items-start gap-2">
+                      <AlertTriangle className="h-4 w-4 text-red-600 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <span className="font-semibold">UNTRADEABLE status active:</span> Poor risk-adjusted metrics (Sharpe &lt; 1.0, Sortino &lt; 1.0, or Max DD &gt; 15%) failed safety thresholds. Signals from this strategy are ignored in the recommender.
+                      </div>
+                    </div>
+                  )}
                   {data.total_signals === 0 ? (
                     <p className="text-sm text-muted-foreground text-center py-4">No signals found in this period</p>
                   ) : (
@@ -218,8 +233,10 @@ export default function PerformancePage() {
                             <TableHead className="text-xs">Hold</TableHead>
                             <TableHead className="text-xs text-right">Win Rate</TableHead>
                             <TableHead className="text-xs text-right">Avg Return</TableHead>
-                            <TableHead className="text-xs text-right">Best</TableHead>
-                            <TableHead className="text-xs text-right">Worst</TableHead>
+                            <TableHead className="text-xs text-right">Sharpe</TableHead>
+                            <TableHead className="text-xs text-right">Sortino</TableHead>
+                            <TableHead className="text-xs text-right">Max DD</TableHead>
+                            <TableHead className="text-xs text-right">Gain/Pain</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -232,8 +249,18 @@ export default function PerformancePage() {
                               <TableCell className={`text-right ${stats.avg_return > 0 ? "text-green-600" : "text-red-600"}`}>
                                 {stats.avg_return >= 0 ? "+" : ""}{stats.avg_return}%
                               </TableCell>
-                              <TableCell className="text-right text-green-600 text-xs">+{stats.best_trade}%</TableCell>
-                              <TableCell className="text-right text-red-600 text-xs">{stats.worst_trade}%</TableCell>
+                              <TableCell className={`text-right ${stats.sharpe >= 1.0 ? "text-green-600 font-semibold" : "text-red-600"}`}>
+                                {stats.sharpe !== undefined ? stats.sharpe.toFixed(2) : "-"}
+                              </TableCell>
+                              <TableCell className={`text-right ${stats.sortino >= 1.0 ? "text-green-600 font-semibold" : "text-red-600"}`}>
+                                {stats.sortino !== undefined ? stats.sortino.toFixed(2) : "-"}
+                              </TableCell>
+                              <TableCell className={`text-right ${stats.max_drawdown > 15 ? "text-red-600 font-semibold" : "text-green-600"}`}>
+                                {stats.max_drawdown !== undefined ? `${stats.max_drawdown.toFixed(1)}%` : "-"}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                {stats.gain_to_pain !== undefined ? stats.gain_to_pain.toFixed(2) : "-"}
+                              </TableCell>
                             </TableRow>
                           ))}
                         </TableBody>

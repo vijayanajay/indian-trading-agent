@@ -8,10 +8,17 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { HelpSection } from "@/components/HelpSection";
-import { Loader2, TrendingUp, TrendingDown, Sparkles, ChevronDown, ChevronUp, Target, Search, FlaskConical } from "lucide-react";
+import { Loader2, TrendingUp, TrendingDown, Sparkles, ChevronDown, ChevronUp, Target, Search, FlaskConical, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { NextStep } from "@/components/NextStep";
+
+const strategyNames: Record<string, string> = {
+  gap: "Gap Up/Down",
+  volume: "Volume Spike",
+  breakout: "Breakout (20-day)",
+  sr_bounce: "Support Bounce",
+};
 
 const recommendationsHelp = [
   {
@@ -282,6 +289,28 @@ export default function RecommendationsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Untradeable Warning Banner */}
+      {data && data.strategy_status && Object.values(data.strategy_status).some((v) => !v) && (
+        <Card className="border-red-200 bg-red-50/50">
+          <CardContent className="p-4 flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="font-semibold text-red-800 text-sm">Risk Warning: Untradeable Strategies Filtered Out</p>
+              <p className="text-xs text-red-700 mt-0.5">
+                The following strategies are currently disabled because their risk-adjusted metrics (Sharpe &lt; 1.0, Sortino &lt; 1.0, or Max Drawdown &gt; 15%) failed the safety thresholds:{" "}
+                <span className="font-semibold">
+                  {Object.entries(data.strategy_status)
+                    .filter(([_, allowed]) => !allowed)
+                    .map(([strat]) => strategyNames[strat] || strat)
+                    .join(", ")}
+                </span>
+                . They will not feed into the recommender until they recover in historical performance testing.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Summary */}
       {data && (

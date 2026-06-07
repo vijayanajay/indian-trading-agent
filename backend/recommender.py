@@ -102,8 +102,15 @@ def _compute_rsi(closes, period=14):
     return 100.0 - (100.0 / (1.0 + rs))
 
 
-def _analyze_stock(ticker: str) -> dict | None:
+def _analyze_stock(ticker: str, allowed_strategies: dict = None) -> dict | None:
     """Analyze a single stock and return signals + score."""
+    if allowed_strategies is None:
+        allowed_strategies = {
+            "gap": True,
+            "volume": True,
+            "breakout": True,
+            "sr_bounce": True,
+        }
     try:
         symbol = f"{ticker}.NS"
         t = yf.Ticker(symbol)
@@ -132,28 +139,29 @@ def _analyze_stock(ticker: str) -> dict | None:
         direction = "NEUTRAL"
 
         # === GAP ANALYSIS ===
-        gap_pct = (current_open - prev_close) / prev_close * 100
-        if abs(gap_pct) >= 2.0:
-            if gap_pct > 0:
-                # Gap up
-                if current_close >= prev_close:
-                    score += _ACTIVE_WEIGHTS["gap_up_filled"]
-                    signals.append({"type": "Gap Up (Filled)", "direction": "BULLISH", "value": f"+{gap_pct:.2f}%", "weight": _ACTIVE_WEIGHTS["gap_up_filled"]})
+        if allowed_strategies.get("gap", True):
+            gap_pct = (current_open - prev_close) / prev_close * 100
+            if abs(gap_pct) >= 2.0:
+                if gap_pct > 0:
+                    # Gap up
+                    if current_close >= prev_close:
+                        score += _ACTIVE_WEIGHTS["gap_up_filled"]
+                        signals.append({"type": "Gap Up (Filled)", "direction": "BULLISH", "value": f"+{gap_pct:.2f}%", "weight": _ACTIVE_WEIGHTS["gap_up_filled"]})
+                    else:
+                        score += _ACTIVE_WEIGHTS["gap_up_open"]
+                        signals.append({"type": "Gap Up (Unfilled)", "direction": "FADE", "value": f"+{gap_pct:.2f}%", "weight": _ACTIVE_WEIGHTS["gap_up_open"]})
                 else:
-                    score += _ACTIVE_WEIGHTS["gap_up_open"]
-                    signals.append({"type": "Gap Up (Unfilled)", "direction": "FADE", "value": f"+{gap_pct:.2f}%", "weight": _ACTIVE_WEIGHTS["gap_up_open"]})
-            else:
-                # Gap down
-                if current_close >= prev_close:
-                    # Gap down filled = bullish reversal
-                    score += _ACTIVE_WEIGHTS["gap_down_filled"]
-                    signals.append({"type": "Gap Down (Filled - Reversal)", "direction": "BULLISH", "value": f"{gap_pct:.2f}%", "weight": _ACTIVE_WEIGHTS["gap_down_filled"]})
-                else:
-                    score += _ACTIVE_WEIGHTS["gap_down_open"]
-                    signals.append({"type": "Gap Down (Unfilled)", "direction": "FADE", "value": f"{gap_pct:.2f}%", "weight": _ACTIVE_WEIGHTS["gap_down_open"]})
+                    # Gap down
+                    if current_close >= prev_close:
+                        # Gap down filled = bullish reversal
+                        score += _ACTIVE_WEIGHTS["gap_down_filled"]
+                        signals.append({"type": "Gap Down (Filled - Reversal)", "direction": "BULLISH", "value": f"{gap_pct:.2f}%", "weight": _ACTIVE_WEIGHTS["gap_down_filled"]})
+                    else:
+                        score += _ACTIVE_WEIGHTS["gap_down_open"]
+                        signals.append({"type": "Gap Down (Unfilled)", "direction": "FADE", "value": f"{gap_pct:.2f}%", "weight": _ACTIVE_WEIGHTS["gap_down_open"]})
 
         # === VOLUME SPIKE ===
-        if avg_volume > 0:
+        if allowed_strategies.get("volume", True) and avg_volume > 0:
             vol_ratio = current_volume / avg_volume
             if vol_ratio >= 2.0:
                 price_change = (current_close - prev_close) / prev_close * 100
@@ -165,34 +173,36 @@ def _analyze_stock(ticker: str) -> dict | None:
                     signals.append({"type": "Volume Spike (Bearish)", "direction": "BEARISH", "value": f"{vol_ratio:.1f}x avg", "weight": _ACTIVE_WEIGHTS["volume_bearish"]})
 
         # === BREAKOUT ===
-        n_day_high = float(np.max(highs[-21:-1]))  # 20-day high excluding today
-        n_day_low = float(np.min(lows[-21:-1]))
-        if current_high > n_day_high:
-            vol_ratio = current_volume / avg_volume if avg_volume > 0 else 1
-            breakout_pct = (current_close - n_day_high) / n_day_high * 100
-            if vol_ratio >= 1.5:
-                score += _ACTIVE_WEIGHTS["breakout_vol_confirmed"]
-                signals.append({"type": "Breakout (Volume Confirmed)", "direction": "BULLISH", "value": f"+{breakout_pct:.2f}% above 20d high", "weight": _ACTIVE_WEIGHTS["breakout_vol_confirmed"]})
-            else:
-                score += _ACTIVE_WEIGHTS["breakout_weak"]
-                signals.append({"type": "Breakout (Weak Volume)", "direction": "BULLISH", "value": f"+{breakout_pct:.2f}% above 20d high", "weight": _ACTIVE_WEIGHTS["breakout_weak"]})
-        elif current_low < n_day_low:
-            breakdown_pct = (current_close - n_day_low) / n_day_low * 100
-            score += _ACTIVE_WEIGHTS["breakdown_support"]
-            signals.append({"type": "Breakdown Below Support", "direction": "BEARISH", "value": f"{breakdown_pct:.2f}% below 20d low", "weight": _ACTIVE_WEIGHTS["breakdown_support"]})
-
-        # === SUPPORT/RESISTANCE PROXIMITY ===
         recent_high = float(np.max(highs[-60:]))
         recent_low = float(np.min(lows[-60:]))
-        distance_to_high = (recent_high - current_close) / current_close * 100
-        distance_to_low = (current_close - recent_low) / current_close * 100
+        if allowed_strategies.get("breakout", True):
+            n_day_high = float(np.max(highs[-21:-1]))  # 20-day high excluding today
+            n_day_low = float(np.min(lows[-21:-1]))
+            if current_high > n_day_high:
+                vol_ratio = current_volume / avg_volume if avg_volume > 0 else 1
+                breakout_pct = (current_close - n_day_high) / n_day_high * 100
+                if vol_ratio >= 1.5:
+                    score += _ACTIVE_WEIGHTS["breakout_vol_confirmed"]
+                    signals.append({"type": "Breakout (Volume Confirmed)", "direction": "BULLISH", "value": f"+{breakout_pct:.2f}% above 20d high", "weight": _ACTIVE_WEIGHTS["breakout_vol_confirmed"]})
+                else:
+                    score += _ACTIVE_WEIGHTS["breakout_weak"]
+                    signals.append({"type": "Breakout (Weak Volume)", "direction": "BULLISH", "value": f"+{breakout_pct:.2f}% above 20d high", "weight": _ACTIVE_WEIGHTS["breakout_weak"]})
+            elif current_low < n_day_low:
+                breakdown_pct = (current_close - n_day_low) / n_day_low * 100
+                score += _ACTIVE_WEIGHTS["breakdown_support"]
+                signals.append({"type": "Breakdown Below Support", "direction": "BEARISH", "value": f"{breakdown_pct:.2f}% below 20d low", "weight": _ACTIVE_WEIGHTS["breakdown_support"]})
 
-        if distance_to_low < 2.0:  # Within 2% of 60-day low
-            score += _ACTIVE_WEIGHTS["near_support"]
-            signals.append({"type": "Near Major Support", "direction": "BULLISH", "value": f"{distance_to_low:.1f}% above low", "weight": _ACTIVE_WEIGHTS["near_support"]})
-        elif distance_to_high < 2.0:  # Within 2% of 60-day high
-            score += _ACTIVE_WEIGHTS["near_resistance"]
-            signals.append({"type": "Near Major Resistance", "direction": "BEARISH", "value": f"{distance_to_high:.1f}% below high", "weight": _ACTIVE_WEIGHTS["near_resistance"]})
+        # === SUPPORT/RESISTANCE PROXIMITY ===
+        if allowed_strategies.get("sr_bounce", True):
+            distance_to_high = (recent_high - current_close) / current_close * 100
+            distance_to_low = (current_close - recent_low) / current_close * 100
+
+            if distance_to_low < 2.0:  # Within 2% of 60-day low
+                score += _ACTIVE_WEIGHTS["near_support"]
+                signals.append({"type": "Near Major Support", "direction": "BULLISH", "value": f"{distance_to_low:.1f}% above low", "weight": _ACTIVE_WEIGHTS["near_support"]})
+            elif distance_to_high < 2.0:  # Within 2% of 60-day high
+                score += _ACTIVE_WEIGHTS["near_resistance"]
+                signals.append({"type": "Near Major Resistance", "direction": "BEARISH", "value": f"{distance_to_high:.1f}% below high", "weight": _ACTIVE_WEIGHTS["near_resistance"]})
 
         # === RSI ===
         rsi = _compute_rsi(closes)
@@ -445,6 +455,15 @@ def recommend(
     # Refresh learned weight overrides from settings before scoring any stock
     _refresh_active_weights()
 
+    # Load strategy tradeability statuses
+    from backend.db import get_setting
+    allowed_strategies = {
+        "gap": get_setting("strategy_status_gap") != "untradeable",
+        "volume": get_setting("strategy_status_volume") != "untradeable",
+        "breakout": get_setting("strategy_status_breakout") != "untradeable",
+        "sr_bounce": get_setting("strategy_status_sr_bounce") != "untradeable",
+    }
+
     stocks = UNIVERSES.get(universe, NIFTY_100)
     all_results = []
 
@@ -478,7 +497,7 @@ def recommend(
             print(f"[Recommender] Concentration check failed: {e}", flush=True)
 
     with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {executor.submit(_analyze_stock, ticker): ticker for ticker in stocks}
+        futures = {executor.submit(_analyze_stock, ticker, allowed_strategies): ticker for ticker in stocks}
         for f in as_completed(futures):
             result = f.result()
             if result and (result["bullish_signal_count"] >= min_signals or result["bearish_signal_count"] >= min_signals):
@@ -537,6 +556,7 @@ def recommend(
         "buys": buys[:20],
         "sells": sells[:20],
         "strong_sells": strong_sells[:20],
+        "strategy_status": allowed_strategies,
     }
 
     # Shadow-record every STRONG BUY + HIGH-conf BUY for counterfactual learning.
