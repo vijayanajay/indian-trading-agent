@@ -7,4 +7,7 @@
 - Added a NumPy-based Newton-Raphson logistic regression solver for calibration modeling with validation Brier score safety checks.
 - Implemented a background cron daemon to daily backfill fingerprints/rebuild caches and weekly retrain the calibration model.
 - Added manual training, status, and backfill API endpoints in the backend and updated Next.js frontend pages/badges.
-- Added unit tests in `test_honest_assessment.py` achieving full coverage and passing all test suites.
+- Added dynamic signal fingerprint computation and database insertion at the moment shadow trades are recorded.
+- Implemented database startup migration calling `_migrate_paper_trades_columns` during `ensure_db` to avoid sqlite column errors.
+- Created `backfill_fingerprints.py` migration script to compute and backfill fingerprints for historical paper/shadow trades.
+- Added test coverage verifying fingerprint generation, migration, and fallback query logic on cache misses.
