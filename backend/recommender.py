@@ -144,15 +144,15 @@ def _analyze_stock(ticker: str, allowed_strategies: dict = None) -> dict | None:
             if abs(gap_pct) >= 2.0:
                 if gap_pct > 0:
                     # Gap up
-                    if current_close >= prev_close:
+                    if current_low <= prev_close:
                         score += _ACTIVE_WEIGHTS["gap_up_filled"]
                         signals.append({"type": "Gap Up (Filled)", "direction": "BULLISH", "value": f"+{gap_pct:.2f}%", "weight": _ACTIVE_WEIGHTS["gap_up_filled"]})
-                    else:
+                    elif current_close < current_open:
                         score += _ACTIVE_WEIGHTS["gap_up_open"]
                         signals.append({"type": "Gap Up (Unfilled)", "direction": "FADE", "value": f"+{gap_pct:.2f}%", "weight": _ACTIVE_WEIGHTS["gap_up_open"]})
                 else:
                     # Gap down
-                    if current_close >= prev_close:
+                    if current_high >= prev_close:
                         # Gap down filled = bullish reversal
                         score += _ACTIVE_WEIGHTS["gap_down_filled"]
                         signals.append({"type": "Gap Down (Filled - Reversal)", "direction": "BULLISH", "value": f"{gap_pct:.2f}%", "weight": _ACTIVE_WEIGHTS["gap_down_filled"]})

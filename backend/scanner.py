@@ -115,7 +115,7 @@ def scan_gaps(stocks_data: list[dict], threshold_pct: float = 2.0) -> list[dict]
                 "direction": "UP" if gap_pct > 0 else "DOWN",
                 "prev_close": round(d["prev_close"], 2),
                 "open": round(d["current_open"], 2),
-                "filled": bool(d["current_close"] <= d["prev_close"] if gap_pct > 0 else d["current_close"] >= d["prev_close"]),
+                "filled": bool((gap_pct > 0 and d["current_low"] <= d["prev_close"]) or (gap_pct < 0 and d["current_high"] >= d["prev_close"])),
             })
     results.sort(key=lambda x: abs(x["gap_pct"]), reverse=True)
     return results

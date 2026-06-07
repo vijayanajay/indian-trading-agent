@@ -31,4 +31,9 @@
 - Adapted recommender filter functions (`_apply_market_bias`, `_apply_event_filter`, `_apply_concentration_filter`) to adjust score and direction without direct probability recalculations.
 - Updated Next.js frontend pages (Recommendations, Shadow Trades, Simulation, and Dashboard TodayPicks) to render the `HonestAssessmentBadge` prominently and handle null probabilities gracefully by rendering descriptive display messages.
 - Created and executed a database migration script `backfill_honest_assessments.py` to backfill and update the `success_probability` column for all historical trades in `paper_trades` and `shadow_trades`.
-- Updated unit test coverage in `test_honest_assessment.py` to verify the updated display messages and `0.20` Brier threshold validation.
+- Redefined "gap filled" to mean that the price actually returned to the pre-gap level (previous close) during the session, rather than checking if the close was green.
+- Modified the gap analysis check in `backend/recommender.py` to use intraday `current_low` and `current_high` prices.
+- Updated the gap strategy performance tracker in `backend/performance.py` (`measure_gap_strategy()`) to mirror the new trade direction logic (long if filled, short if unfilled fade for gap up, and short if unfilled for gap down).
+- Updated the market scanner in `backend/scanner.py` (`scan_gaps()`) to recalculate the `filled` boolean using the new definition.
+- Added unit tests in `tests/backend/test_recommender.py` (`test_gap_signals`) covering all 5 gap fill/fade scenarios.
+- Re-ran the historical backtester to regenerate win rates and save the updated strategy statuses in SQLite.

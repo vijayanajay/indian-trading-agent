@@ -66,3 +66,102 @@ def test_recommend_base(mock_shadow, mock_executor, mock_refresh, mock_universes
         assert res["strong_buys"][0]["ticker"] == "AAPL"
         assert len(res["strong_sells"]) == 1
         assert res["strong_sells"][0]["ticker"] == "MSFT"
+
+
+@patch("backend.recommender.yf.Ticker")
+def test_gap_signals(mock_ticker):
+    import pandas as pd
+    import numpy as np
+    from backend.recommender import _analyze_stock
+
+    dates = pd.date_range(end="2026-06-07", periods=60)
+    volumes = [1000] * 60
+    
+    # 1. Test Gap Up (Filled): gap_pct >= 2.0, low <= prev_close
+    # prev_close = 100, open = 103 (gap 3%), low = 99 (filled), close = 102
+    opens = [100.0] * 59 + [103.0]
+    highs = [101.0] * 59 + [104.0]
+    lows = [99.0] * 59 + [99.0]
+    closes = [100.0] * 59 + [102.0]
+    
+    df = pd.DataFrame({
+        "Open": opens, "High": highs, "Low": lows, "Close": closes, "Volume": volumes
+    }, index=dates)
+    mock_ticker.return_value.history.return_value = df
+    
+    result = _analyze_stock("TEST", allowed_strategies={"gap": True})
+    assert result is not None
+    gap_signals = [s for s in result["signals"] if "Gap Up (Filled)" in s["type"]]
+    assert len(gap_signals) == 1
+    assert gap_signals[0]["direction"] == "BULLISH"
+
+    # 2. Test Gap Up (Unfilled - Fade): gap_pct >= 2.0, low > prev_close, close < open
+    # prev_close = 100, open = 103 (gap 3%), low = 101 (unfilled), close = 102 (close < open)
+    opens = [100.0] * 59 + [103.0]
+    highs = [104.0] * 59 + [104.0]
+    lows = [99.0] * 59 + [101.0]
+    closes = [100.0] * 59 + [102.0]
+    
+    df = pd.DataFrame({
+        "Open": opens, "High": highs, "Low": lows, "Close": closes, "Volume": volumes
+    }, index=dates)
+    mock_ticker.return_value.history.return_value = df
+    
+    result = _analyze_stock("TEST", allowed_strategies={"gap": True})
+    assert result is not None
+    gap_signals = [s for s in result["signals"] if "Gap Up (Unfilled)" in s["type"]]
+    assert len(gap_signals) == 1
+    assert gap_signals[0]["direction"] == "FADE"
+
+    # 3. Test Gap Up (Unfilled - No Signal): gap_pct >= 2.0, low > prev_close, close >= open
+    # prev_close = 100, open = 103 (gap 3%), low = 101 (unfilled), close = 104 (close >= open)
+    opens = [100.0] * 59 + [103.0]
+    highs = [105.0] * 59 + [105.0]
+    lows = [99.0] * 59 + [101.0]
+    closes = [100.0] * 59 + [104.0]
+    
+    df = pd.DataFrame({
+        "Open": opens, "High": highs, "Low": lows, "Close": closes, "Volume": volumes
+    }, index=dates)
+    mock_ticker.return_value.history.return_value = df
+    
+    result = _analyze_stock("TEST", allowed_strategies={"gap": True})
+    assert result is not None
+    gap_signals = [s for s in result["signals"] if "Gap" in s["type"]]
+    assert len(gap_signals) == 0
+
+    # 4. Test Gap Down (Filled - Reversal): gap_pct <= -2.0, high >= prev_close
+    # prev_close = 100, open = 97 (gap -3%), high = 100.5 (filled), close = 99
+    opens = [100.0] * 59 + [97.0]
+    highs = [101.0] * 59 + [100.5]
+    lows = [99.0] * 59 + [96.0]
+    closes = [100.0] * 59 + [99.0]
+    
+    df = pd.DataFrame({
+        "Open": opens, "High": highs, "Low": lows, "Close": closes, "Volume": volumes
+    }, index=dates)
+    mock_ticker.return_value.history.return_value = df
+    
+    result = _analyze_stock("TEST", allowed_strategies={"gap": True})
+    assert result is not None
+    gap_signals = [s for s in result["signals"] if "Gap Down (Filled - Reversal)" in s["type"]]
+    assert len(gap_signals) == 1
+    assert gap_signals[0]["direction"] == "BULLISH"
+
+    # 5. Test Gap Down (Unfilled): gap_pct <= -2.0, high < prev_close
+    # prev_close = 100, open = 97 (gap -3%), high = 99 (unfilled), close = 98
+    opens = [100.0] * 59 + [97.0]
+    highs = [101.0] * 59 + [99.0]
+    lows = [99.0] * 59 + [96.0]
+    closes = [100.0] * 59 + [98.0]
+    
+    df = pd.DataFrame({
+        "Open": opens, "High": highs, "Low": lows, "Close": closes, "Volume": volumes
+    }, index=dates)
+    mock_ticker.return_value.history.return_value = df
+    
+    result = _analyze_stock("TEST", allowed_strategies={"gap": True})
+    assert result is not None
+    gap_signals = [s for s in result["signals"] if "Gap Down (Unfilled)" in s["type"]]
+    assert len(gap_signals) == 1
+    assert gap_signals[0]["direction"] == "FADE"

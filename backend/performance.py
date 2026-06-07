@@ -85,7 +85,23 @@ def measure_gap_strategy(
             if abs(gap_pct) < gap_threshold:
                 continue
 
-            direction = "long" if gap_pct > 0 else "short"
+            if gap_pct > 0:
+                # Gap up
+                today_low = float(hist.iloc[i]["Low"])
+                today_close = float(hist.iloc[i]["Close"])
+                if today_low <= prev_close:
+                    direction = "long"
+                elif today_close < today_open:
+                    direction = "short"
+                else:
+                    continue
+            else:
+                # Gap down
+                today_high = float(hist.iloc[i]["High"])
+                if today_high >= prev_close:
+                    direction = "long"
+                else:
+                    direction = "short"
             returns = {}
             for hd in hold_days:
                 exit_price = _get_exit_price(hist, i, hd)
