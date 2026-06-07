@@ -137,6 +137,7 @@ export const openPaperTrade = (data: {
   score?: number;
   success_probability?: number;
   notes?: string;
+  position_size_pct?: number;
 }) => fetchAPI(`/api/simulation/paper-trade`, { method: "POST", body: JSON.stringify(data) });
 
 export const listPaperTrades = (status?: string) =>

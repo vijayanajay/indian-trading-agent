@@ -30,6 +30,7 @@ class OpenTradeRequest(BaseModel):
     success_probability: int | None = None
     triggered_signals: list[dict] | None = None
     notes: str | None = None
+    position_size_pct: float | None = None
 
 
 @router.post("/paper-trade")
@@ -45,6 +46,7 @@ def open_trade(req: OpenTradeRequest):
         success_probability=req.success_probability,
         triggered_signals=req.triggered_signals,
         notes=req.notes,
+        position_size_pct=req.position_size_pct,
     )
 
 

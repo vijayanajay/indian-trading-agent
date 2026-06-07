@@ -289,6 +289,7 @@ def _analyze_stock(ticker: str, allowed_strategies: dict = None) -> dict | None:
             "direction": direction,
             "confidence": confidence,
             "honest_assessment": assessment,
+            "suggested_position_size_pct": assessment.get("suggested_position_size_pct"),
             "signals": signals,
             "bullish_signal_count": len(bullish_signals),
             "bearish_signal_count": len(bearish_signals),
@@ -353,6 +354,7 @@ def _apply_market_bias(result: dict, bias: dict) -> dict:
     result["score"] = new_score
     result["direction"] = direction
     result["honest_assessment"] = assessment
+    result["suggested_position_size_pct"] = assessment.get("suggested_position_size_pct")
     result["market_bias_applied"] = bias["bias"]
 
     return result
@@ -417,6 +419,7 @@ def _apply_concentration_filter(result: dict, concentration_check: dict) -> dict
     result["score"] = new_score
     result["direction"] = direction
     result["honest_assessment"] = assessment
+    result["suggested_position_size_pct"] = assessment.get("suggested_position_size_pct")
 
     return result
 
@@ -478,6 +481,7 @@ def _apply_event_filter(result: dict, event_filter: dict) -> dict:
     result["score"] = new_score
     result["direction"] = direction
     result["honest_assessment"] = assessment
+    result["suggested_position_size_pct"] = assessment.get("suggested_position_size_pct")
 
     return result
 

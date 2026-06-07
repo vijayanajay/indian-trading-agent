@@ -179,6 +179,7 @@ export function TodayPicks({ universe = "nifty100" }: { universe?: string }) {
                           confidence: pick.confidence,
                           success_probability: pick.honest_assessment?.probability,
                           triggered_signals: pick.signals,
+                          position_size_pct: pick.suggested_position_size_pct,
                         } as any);
                         toast.success(`${pick.ticker} tracked at Rs.${pick.price}`, {
                           description: "Paper trade opened. Check P&L at 1/3/5/10 days on the Simulation page.",

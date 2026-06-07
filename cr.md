@@ -37,3 +37,10 @@
 - Updated the market scanner in `backend/scanner.py` (`scan_gaps()`) to recalculate the `filled` boolean using the new definition.
 - Added unit tests in `tests/backend/test_recommender.py` (`test_gap_signals`) covering all 5 gap fill/fade scenarios.
 - Re-ran the historical backtester to regenerate win rates and save the updated strategy statuses in SQLite.
+- Added `position_size_pct` column (`REAL`) to the `paper_trades` table schema and set up automatic SQLite migrations on startup.
+- Implemented database backfill migration function `_run_position_size_migration` to backfill `position_size_pct` for historical paper trades based on their success probability tiers, defaulting to `5%`.
+- Updated `add_paper_trade` to compute and store the Kelly suggested size from `get_honest_assessment` when no size is supplied.
+- Rewrote `get_portfolio_drawdown()` in `honest_assessment.py` to use trade-specific `position_size_pct` instead of a hardcoded 10% cash allocation, falling back to `5%` with a logged warning if the column is NULL.
+- Propagated the `suggested_position_size_pct` through recommendation filters (`_apply_market_bias`, `_apply_event_filter`, `_apply_concentration_filter`) in `recommender.py` to ensure post-filter sizing is returned.
+- Updated Next.js frontend pages (`recommendations/page.tsx` and `TodayPicks.tsx`) to pass the recommendation's suggested position size when tracking new paper trades.
+- Updated unit tests in `test_honest_assessment.py` to assert correct backfill, fallback, and drawdown calculation behaviors.

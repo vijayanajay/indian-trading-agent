@@ -40,8 +40,9 @@ def get_portfolio_drawdown() -> float:
     try:
         with get_db() as conn:
             rows = conn.execute(
-                """SELECT entry_datetime, entry_date, status, notes, 
-                          pnl_1d_pct, pnl_3d_pct, pnl_5d_pct, pnl_10d_pct, updated_at 
+                """SELECT id, ticker, entry_datetime, entry_date, status, notes, 
+                          pnl_1d_pct, pnl_3d_pct, pnl_5d_pct, pnl_10d_pct, updated_at,
+                          position_size_pct
                    FROM paper_trades"""
             ).fetchall()
         if not rows:
@@ -93,10 +94,20 @@ def get_portfolio_drawdown() -> float:
             if exit_dt is None:
                 exit_dt = datetime.now()
                 
+            # Get position size with fallback
+            pos_size = r["position_size_pct"]
+            if pos_size is None:
+                pos_size = 5.0
+                import logging
+                logging.warning(
+                    f"Trade ID {r['id']} ({r['ticker']}) has NULL position_size_pct. Falling back to conservative 5%."
+                )
+                
             trades.append({
                 "entry": entry_dt,
                 "exit": exit_dt,
-                "pnl": pnl
+                "pnl": pnl,
+                "position_size_pct": pos_size
             })
             
         # Sort events chronologically. Exit events before entry events at the same timestamp.
@@ -115,7 +126,7 @@ def get_portfolio_drawdown() -> float:
         for evt_time, evt_type, idx in events:
             if evt_type == "entry":
                 current_equity = cash + sum(open_positions.values())
-                alloc = current_equity * 0.10
+                alloc = current_equity * (trades[idx]["position_size_pct"] / 100.0)
                 cash -= alloc
                 open_positions[idx] = alloc
             elif evt_type == "exit":

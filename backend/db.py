@@ -113,7 +113,8 @@ def ensure_db():
                 signal_fingerprint TEXT,
                 regime_at_entry TEXT,
                 fii_flow_at_entry TEXT,
-                volatility_at_entry REAL
+                volatility_at_entry REAL,
+                position_size_pct REAL
             );
 
             -- Daily Verdict snapshots — measures whether the verdict actually predicted Nifty's move
@@ -216,6 +217,7 @@ def ensure_db():
             );
         """)
     _migrate_paper_trades_columns()
+    _run_position_size_migration()
 
 
 @contextmanager
@@ -468,13 +470,29 @@ def add_paper_trade(data: dict) -> int:
     except Exception:
         pass
 
+    position_size_pct = data.get("position_size_pct")
+    if position_size_pct is None:
+        try:
+            from backend.honest_assessment import get_honest_assessment
+            signals_list = data.get("triggered_signals") or []
+            if isinstance(signals_list, str):
+                try:
+                    signals_list = json.loads(signals_list)
+                except Exception:
+                    signals_list = []
+            score = data.get("score") or 0.0
+            assessment = get_honest_assessment(signals_list, score, regime_at_entry)
+            position_size_pct = assessment.get("suggested_position_size_pct")
+        except Exception:
+            position_size_pct = 5.0
+
     with get_db() as conn:
         cursor = conn.execute(
             """INSERT INTO paper_trades
             (ticker, source, strategy, direction, signal, score, confidence,
              success_probability, triggered_signals, entry_price, notes, regime_at_entry,
-             signal_fingerprint, fii_flow_at_entry, volatility_at_entry)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+             signal_fingerprint, fii_flow_at_entry, volatility_at_entry, position_size_pct)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 data.get("ticker"),
                 data.get("source", "manual"),
@@ -491,6 +509,7 @@ def add_paper_trade(data: dict) -> int:
                 signal_fingerprint,
                 fii_flow_at_entry,
                 volatility_at_entry,
+                position_size_pct,
             ),
         )
         return cursor.lastrowid
@@ -509,6 +528,7 @@ def _migrate_paper_trades_columns():
             ("signal_fingerprint", "TEXT"),
             ("fii_flow_at_entry", "TEXT"),
             ("volatility_at_entry", "REAL"),
+            ("position_size_pct", "REAL"),
         ]:
             if col not in existing_paper:
                 try:
@@ -528,6 +548,35 @@ def _migrate_paper_trades_columns():
                     conn.execute(f"ALTER TABLE shadow_trades ADD COLUMN {col} {ddl}")
                 except Exception:
                     pass
+
+
+def _run_position_size_migration():
+    """Backfill position_size_pct for existing trades using success_probability tier or default to 5%."""
+    with get_db() as conn:
+        # Check if there are any rows with NULL position_size_pct
+        rows = conn.execute(
+            "SELECT id, success_probability FROM paper_trades WHERE position_size_pct IS NULL"
+        ).fetchall()
+        if not rows:
+            return
+            
+        for r in rows:
+            trade_id = r["id"]
+            prob = r["success_probability"]
+            if prob is not None:
+                if prob >= 65:
+                    size = 10.0
+                elif prob >= 55:
+                    size = 7.5
+                else:
+                    size = 5.0
+            else:
+                size = 5.0
+                
+            conn.execute(
+                "UPDATE paper_trades SET position_size_pct = ? WHERE id = ?",
+                (size, trade_id)
+            )
 
 
 def list_paper_trades(status: str | None = None) -> list[dict]:

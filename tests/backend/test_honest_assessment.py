@@ -374,14 +374,14 @@ def test_kelly_criterion_replacement():
     with get_db() as conn:
         conn.execute("DELETE FROM paper_trades")
         conn.execute(
-            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_datetime, status, pnl_5d_pct, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            ("DT1", 100.0, "[]", "2026-06-01 10:00:00", "expired", -90.0, "2026-06-02 10:00:00")
+            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_datetime, status, pnl_5d_pct, updated_at, position_size_pct)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("DT1", 100.0, "[]", "2026-06-01 10:00:00", "expired", -90.0, "2026-06-02 10:00:00", 10.0)
         )
         conn.execute(
-            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_datetime, status, pnl_5d_pct, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            ("DT2", 100.0, "[]", "2026-06-03 10:00:00", "expired", -50.0, "2026-06-04 10:00:00")
+            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_datetime, status, pnl_5d_pct, updated_at, position_size_pct)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("DT2", 100.0, "[]", "2026-06-03 10:00:00", "expired", -50.0, "2026-06-04 10:00:00", 10.0)
         )
         
     assessment = get_honest_assessment(signals, 4.5, regime)
@@ -404,9 +404,9 @@ def test_get_portfolio_drawdown_calculation():
     # T1 alloc = 10% of 100k = 10k. Returns +20% => returns 12k. Equity = 102k. Drawdown = 0.0.
     with get_db() as conn:
         conn.execute(
-            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_datetime, status, pnl_5d_pct, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            ("WT1", 100.0, "[]", "2026-06-01 10:00:00", "expired", 20.0, "2026-06-02 10:00:00")
+            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_datetime, status, pnl_5d_pct, updated_at, position_size_pct)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("WT1", 100.0, "[]", "2026-06-01 10:00:00", "expired", 20.0, "2026-06-02 10:00:00", 10.0)
         )
     assert get_portfolio_drawdown() == 0.0
 
@@ -417,12 +417,75 @@ def test_get_portfolio_drawdown_calculation():
     # Drawdown from peak (102k) is (102 - 96.9) / 102 * 100 = 5.0%.
     with get_db() as conn:
         conn.execute(
-            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_datetime, status, pnl_5d_pct, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            ("WT2", 100.0, "[]", "2026-06-03 10:00:00", "expired", -50.0, "2026-06-04 10:00:00")
+            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_datetime, status, pnl_5d_pct, updated_at, position_size_pct)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("WT2", 100.0, "[]", "2026-06-03 10:00:00", "expired", -50.0, "2026-06-04 10:00:00", 10.0)
         )
     dd = get_portfolio_drawdown()
     assert abs(dd - 5.0) < 0.01
+
+    # Scenario 4: NULL position_size_pct fallback to 5.0%
+    # Cash before WT3 entry: 91.8k + 5.1k = 96.9k.
+    # WT3 alloc = 96.9k * 5.0% = 4.845k (using fallback).
+    # Cash after entry: 92.055k.
+    # WT3 returns -50.0% => returned = 2.4225k.
+    # Current equity = 92.055k + 2.4225k = 94.4775k.
+    # Drawdown from peak (102k) is (102 - 94.4775) / 102 * 100 = 7.375%.
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_datetime, status, pnl_5d_pct, updated_at, position_size_pct)
+               VALUES (?, ?, ?, ?, ?, ?, ?, NULL)""",
+            ("WT3", 100.0, "[]", "2026-06-05 10:00:00", "expired", -50.0, "2026-06-06 10:00:00")
+        )
+    dd_fallback = get_portfolio_drawdown()
+    assert abs(dd_fallback - 7.375) < 0.01
+
+
+def test_position_size_migration():
+    """Verify that _run_position_size_migration correctly backfills position_size_pct."""
+    from backend.db import _run_position_size_migration
+    
+    with get_db() as conn:
+        conn.execute("DELETE FROM paper_trades")
+        # Insert 4 trades with NULL position_size_pct
+        conn.execute(
+            """INSERT INTO paper_trades (ticker, entry_price, success_probability, position_size_pct)
+               VALUES (?, ?, ?, NULL)""",
+            ("M1", 100.0, 70)  # calibrated >= 65 -> 10.0%
+        )
+        conn.execute(
+            """INSERT INTO paper_trades (ticker, entry_price, success_probability, position_size_pct)
+               VALUES (?, ?, ?, NULL)""",
+            ("M2", 100.0, 60)  # calibrated >= 55 -> 7.5%
+        )
+        conn.execute(
+            """INSERT INTO paper_trades (ticker, entry_price, success_probability, position_size_pct)
+               VALUES (?, ?, ?, NULL)""",
+            ("M3", 100.0, 40)  # calibrated < 55 -> 5.0%
+        )
+        conn.execute(
+            """INSERT INTO paper_trades (ticker, entry_price, success_probability, position_size_pct)
+               VALUES (?, ?, NULL, NULL)""",
+            ("M4", 100.0)      # success_probability is NULL -> 5.0%
+        )
+        # One trade with already set position_size_pct that should NOT be mutated
+        conn.execute(
+            """INSERT INTO paper_trades (ticker, entry_price, success_probability, position_size_pct)
+               VALUES (?, ?, ?, ?)""",
+            ("M5", 100.0, 70, 15.0)
+        )
+        
+    _run_position_size_migration()
+    
+    with get_db() as conn:
+        rows = conn.execute("SELECT ticker, position_size_pct FROM paper_trades ORDER BY ticker").fetchall()
+        results = {r["ticker"]: r["position_size_pct"] for r in rows}
+        
+    assert results["M1"] == 10.0
+    assert results["M2"] == 7.5
+    assert results["M3"] == 5.0
+    assert results["M4"] == 5.0
+    assert results["M5"] == 15.0
 
 
 

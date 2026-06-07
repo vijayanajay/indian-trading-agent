@@ -44,6 +44,7 @@ def open_paper_trade(
     success_probability: int = None,
     triggered_signals: list | None = None,
     notes: str = None,
+    position_size_pct: float | None = None,
 ) -> dict:
     """Open a new paper trade at current market price."""
     symbol = normalize_ticker(ticker)
@@ -75,6 +76,7 @@ def open_paper_trade(
         "triggered_signals": triggered_signals,
         "entry_price": round(current_price, 2),
         "notes": notes,
+        "position_size_pct": position_size_pct,
     })
 
     return {

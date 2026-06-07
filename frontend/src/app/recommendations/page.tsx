@@ -145,6 +145,7 @@ function RecommendationCard({ rec }: { rec: any }) {
                     confidence: rec.confidence,
                     success_probability: rec.honest_assessment?.probability,
                     triggered_signals: rec.signals,
+                    position_size_pct: rec.suggested_position_size_pct,
                   } as any);
                   toast.success(`${rec.ticker} tracked at Rs.${rec.price}`, {
                     description: "Paper trade opened. Check P&L at 1/3/5/10 days on the Simulation page.",
