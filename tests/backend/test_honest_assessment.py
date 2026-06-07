@@ -88,6 +88,11 @@ def test_fit_logistic_regression():
 
 def test_honest_assessment_tiers():
     """Verify HonestAssessmentEngine transitions across Exploratory, Emerging, Empirical, and Calibrated tiers."""
+    with get_db() as conn:
+        conn.execute("DELETE FROM model_coefficients")
+        import backend.signal_model
+        backend.signal_model._MODEL_CACHE = None
+
     signals = [{"type": "Breakout (Volume Confirmed)"}, {"type": "Strong Uptrend"}]
     score = 4.5
     regime = "BULL"
@@ -140,12 +145,17 @@ def test_honest_assessment_tiers():
     assessment = get_honest_assessment(signals, score, regime)
     assert assessment["tier"] == "EMPIRICAL"  # Falls back to Empirical because model coefficients aren't in settings
 
-    # Setup valid calibrated model coefficients (Brier = 0.15 < 0.20)
-    set_setting("calibration_model_beta_0", "-1.5")
-    set_setting("calibration_model_beta_1", "0.5")
-    set_setting("calibration_model_brier", "0.15")
+    # Setup valid calibrated model coefficients
+    with get_db() as conn:
+        conn.execute("INSERT OR REPLACE INTO model_coefficients (feature, coefficient, auc, brier, last_trained_date) VALUES ('intercept', -1.5, 0.60, 0.15, '2026-06-07')")
+        conn.execute("INSERT OR REPLACE INTO model_coefficients (feature, coefficient, auc, brier, last_trained_date) VALUES ('sig_breakout_vol_confirmed', 1.5, 0.60, 0.15, '2026-06-07')")
+        conn.execute("INSERT OR REPLACE INTO model_coefficients (feature, coefficient, auc, brier, last_trained_date) VALUES ('sig_uptrend_strong', 1.5, 0.60, 0.15, '2026-06-07')")
+        conn.execute("INSERT OR REPLACE INTO model_coefficients (feature, coefficient, auc, brier, last_trained_date) VALUES ('regime_BULL', 1.5, 0.60, 0.15, '2026-06-07')")
+        # Clear model cache to pick up new coefficients
+        import backend.signal_model
+        backend.signal_model._MODEL_CACHE = None
     
-    # Tier 4: Calibrated (n >= 100 + calibrated model + Brier < 0.20)
+    # Tier 4: Calibrated (n >= 100 + calibrated model + Brier < 0.25)
     assessment = get_honest_assessment(signals, score, regime)
     assert assessment["tier"] == "CALIBRATED"
     assert assessment["probability"] is not None
@@ -153,8 +163,10 @@ def test_honest_assessment_tiers():
     assert assessment["suggested_position_size_pct"] == assessment["kelly_pct"]
     assert "Model:" in assessment["display_message"]
     
-    # Check fallback when Brier is too high (Brier = 0.22 >= 0.20)
-    set_setting("calibration_model_brier", "0.22")
+    # Check fallback when Brier is too high (Brier = 0.26 >= 0.25)
+    with get_db() as conn:
+        conn.execute("UPDATE model_coefficients SET brier = 0.26")
+        backend.signal_model._MODEL_CACHE = None
     assessment = get_honest_assessment(signals, score, regime)
     assert assessment["tier"] == "EMPIRICAL"  # Bypassed model due to Brier safety check
 
@@ -271,10 +283,14 @@ def test_kelly_criterion_replacement():
     regime = "BULL"
     fp = compute_fingerprint([s["type"] for s in signals], regime)
     
-    # 1. Setup a valid calibrated model in settings
-    set_setting("calibration_model_beta_0", "-1.5")
-    set_setting("calibration_model_beta_1", "0.5")
-    set_setting("calibration_model_brier", "0.15")
+    # 1. Setup a valid calibrated model in model_coefficients table
+    with get_db() as conn:
+        conn.execute("INSERT OR REPLACE INTO model_coefficients (feature, coefficient, auc, brier, last_trained_date) VALUES ('intercept', -1.5, 0.60, 0.15, '2026-06-07')")
+        conn.execute("INSERT OR REPLACE INTO model_coefficients (feature, coefficient, auc, brier, last_trained_date) VALUES ('sig_breakout_vol_confirmed', 1.0, 0.60, 0.15, '2026-06-07')")
+        conn.execute("INSERT OR REPLACE INTO model_coefficients (feature, coefficient, auc, brier, last_trained_date) VALUES ('sig_uptrend_strong', 0.75, 0.60, 0.15, '2026-06-07')")
+        conn.execute("INSERT OR REPLACE INTO model_coefficients (feature, coefficient, auc, brier, last_trained_date) VALUES ('regime_BULL', 0.5, 0.60, 0.15, '2026-06-07')")
+        import backend.signal_model
+        backend.signal_model._MODEL_CACHE = None
     
     # Update cache to indicate CALIBRATED tier (n >= 100)
     with get_db() as conn:
@@ -293,7 +309,7 @@ def test_kelly_criterion_replacement():
     assessment = get_honest_assessment(signals, score, regime)
     assert assessment["tier"] == "CALIBRATED"
     assert assessment["low_confidence"] is True
-    # logit = -1.5 + 0.5 * 4.5 = 0.75 => p = 0.679. b = 1.0. k_frac = 0.679 - 0.321 = 0.358 => 35.8% capped at 15%
+    # logit = -1.5 + 1.0 + 0.75 + 0.5 = 0.75 => p = 0.679. b = 1.0. k_frac = 0.679 - 0.321 = 0.358 => 35.8% capped at 15%
     assert assessment["kelly_pct"] == 15.0
     assert "(low confidence)" in assessment["display_message"]
     
@@ -320,23 +336,36 @@ def test_kelly_criterion_replacement():
     assert "(low confidence)" not in assessment["display_message"]
     
     # Test 1.3: Capping check with lower p to see actual uncapped Kelly sizing.
-    # score = 2.0 => logit = -1.5 + 1.0 = -0.5 => p = 1/(1 + e^0.5) = 0.3775 => q = 0.6225
+    # We update the intercept coefficient to simulate logit = -0.5
+    # logit = -2.75 + 1.0 + 0.75 + 0.5 = -0.5 => p = 1/(1 + e^0.5) = 0.3775 => q = 0.6225
     # Since win rate p = 37.75% and b = 2.0, edge is positive: p*b - q = 0.3775*2 - 0.6225 = 0.755 - 0.6225 = 0.1325
     # k_frac = 0.1325 / 2 = 0.06625 => kelly_pct = 6.6%
-    assessment = get_honest_assessment(signals, 2.0, regime)
+    with get_db() as conn:
+        conn.execute("UPDATE model_coefficients SET coefficient = -2.75 WHERE feature = 'intercept'")
+        backend.signal_model._MODEL_CACHE = None
+    assessment = get_honest_assessment(signals, score, regime)
     assert assessment["kelly_pct"] == 6.6
     assert assessment["suggested_position_size_pct"] == 6.6
     
     # Test 1.4: Negative Kelly override.
-    # score = 1.0 => logit = -1.5 + 0.5 = -1.0 => p = 1/(1+e) = 0.2689 => q = 0.7311
+    # We update the intercept coefficient to simulate logit = -1.0
+    # logit = -3.25 + 1.0 + 0.75 + 0.5 = -1.0 => p = 1/(1+e) = 0.2689 => q = 0.7311
     # p*b - q = 0.2689 * 2 - 0.7311 = 0.5378 - 0.7311 < 0 (negative edge)
     # Kelly should be overridden to DO NOT TRADE / 0%
-    assessment = get_honest_assessment(signals, 1.0, regime)
+    with get_db() as conn:
+        conn.execute("UPDATE model_coefficients SET coefficient = -3.25 WHERE feature = 'intercept'")
+        backend.signal_model._MODEL_CACHE = None
+    assessment = get_honest_assessment(signals, score, regime)
     assert assessment["kelly_pct"] == 0.0
     assert assessment["suggested_position_size_pct"] == 0.0
     assert assessment["display_message"] == "DO NOT TRADE"
 
     # Test 1.5: Drawdown override.
+    # Reset intercept back to a positive edge level (-1.5)
+    with get_db() as conn:
+        conn.execute("UPDATE model_coefficients SET coefficient = -1.5 WHERE feature = 'intercept'")
+        backend.signal_model._MODEL_CACHE = None
+
     # We simulate a portfolio down more than 10% from its peak equity.
     # T1 alloc = 10,000. PnL -90% => returned 1,000. Equity = 91,000. Drawdown = 9% from peak 100,000.
     # T2 alloc = 9,100. PnL -50% => returned 4,550. Equity = 81,900 + 4,550 = 86,450. Drawdown = 13.55%.

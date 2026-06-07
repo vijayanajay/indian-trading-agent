@@ -241,16 +241,36 @@ def _analyze_stock(ticker: str, allowed_strategies: dict = None) -> dict | None:
                 signals.append({"type": "Strong Downtrend", "direction": "BEARISH", "value": "Price < 50 SMA < 200 SMA", "weight": _ACTIVE_WEIGHTS["downtrend_strong"]})
 
         # === DETERMINE OVERALL RECOMMENDATION ===
-        if score >= 4.0:
-            direction = "STRONG BUY"
-        elif score >= 2.0:
-            direction = "BUY"
-        elif score <= -4.0:
-            direction = "STRONG SELL"
-        elif score <= -2.0:
-            direction = "SELL"
+        from backend.signal_model import predict_win_probability
+        from backend.honest_assessment import compute_fingerprint
+        
+        signal_types = [s.get("type") for s in signals if isinstance(s, dict) and s.get("type")]
+        fingerprint = compute_fingerprint(signal_types, _ACTIVE_REGIME)
+        prob_win = predict_win_probability(fingerprint, _ACTIVE_REGIME, signals=signals)
+        
+        if prob_win is not None:
+            success_probability = round(prob_win * 100)
+            if prob_win >= 0.65:
+                direction = "STRONG BUY"
+            elif prob_win >= 0.55:
+                direction = "BUY"
+            elif prob_win <= 0.35:
+                direction = "STRONG SELL"
+            elif prob_win <= 0.45:
+                direction = "SELL"
+            else:
+                direction = "NEUTRAL"
         else:
-            direction = "NEUTRAL"
+            if score >= 4.0:
+                direction = "STRONG BUY"
+            elif score >= 2.0:
+                direction = "BUY"
+            elif score <= -4.0:
+                direction = "STRONG SELL"
+            elif score <= -2.0:
+                direction = "SELL"
+            else:
+                direction = "NEUTRAL"
 
         # Count aligned signals
         bullish_signals = [s for s in signals if s["direction"] == "BULLISH"]
@@ -263,7 +283,8 @@ def _analyze_stock(ticker: str, allowed_strategies: dict = None) -> dict | None:
         # Calculate estimated probability of success based on score + alignment using HonestAssessmentEngine
         from backend.honest_assessment import get_honest_assessment
         assessment = get_honest_assessment(signals, score, _ACTIVE_REGIME)
-        success_probability = assessment.get("probability") or 50
+        if prob_win is None:
+            success_probability = assessment.get("probability") or 50
 
         price_change_day = (current_close - prev_close) / prev_close * 100
 
@@ -309,22 +330,44 @@ def _apply_market_bias(result: dict, bias: dict) -> dict:
     elif adj < 0:
         result["bearish_signal_count"] = result.get("bearish_signal_count", 0) + 1
 
-    # Re-classify direction based on new score
-    if new_score >= 4.0:
-        direction = "STRONG BUY"
-    elif new_score >= 2.0:
-        direction = "BUY"
-    elif new_score <= -4.0:
-        direction = "STRONG SELL"
-    elif new_score <= -2.0:
-        direction = "SELL"
+    from backend.signal_model import predict_win_probability
+    from backend.honest_assessment import compute_fingerprint
+    signal_types = [s.get("type") for s in result["signals"] if isinstance(s, dict) and s.get("type")]
+    fingerprint = compute_fingerprint(signal_types, _ACTIVE_REGIME)
+    prob_win = predict_win_probability(fingerprint, _ACTIVE_REGIME, signals=result["signals"])
+
+    if prob_win is not None:
+        # Apply score adjustment to probability (0.05 per point)
+        prob_win = max(0.01, min(0.99, prob_win + adj * 0.05))
+        success_probability = round(prob_win * 100)
+        if prob_win >= 0.65:
+            direction = "STRONG BUY"
+        elif prob_win >= 0.55:
+            direction = "BUY"
+        elif prob_win <= 0.35:
+            direction = "STRONG SELL"
+        elif prob_win <= 0.45:
+            direction = "SELL"
+        else:
+            direction = "NEUTRAL"
     else:
-        direction = "NEUTRAL"
+        # Re-classify direction based on new score
+        if new_score >= 4.0:
+            direction = "STRONG BUY"
+        elif new_score >= 2.0:
+            direction = "BUY"
+        elif new_score <= -4.0:
+            direction = "STRONG SELL"
+        elif new_score <= -2.0:
+            direction = "SELL"
+        else:
+            direction = "NEUTRAL"
 
     # Re-compute success probability and honest assessment with new score
     from backend.honest_assessment import get_honest_assessment
     assessment = get_honest_assessment(result.get("signals", []), new_score, _ACTIVE_REGIME)
-    success_probability = assessment.get("probability") or 50
+    if prob_win is None:
+        success_probability = assessment.get("probability") or 50
 
     result["score"] = new_score
     result["direction"] = direction
@@ -361,21 +404,44 @@ def _apply_concentration_filter(result: dict, concentration_check: dict) -> dict
     result["concentration_warning"] = "; ".join(warnings) if warnings else None
     result["concentration_breach"] = concentration_check.get("would_breach", False)
 
-    if new_score >= 4.0:
-        direction = "STRONG BUY"
-    elif new_score >= 2.0:
-        direction = "BUY"
-    elif new_score <= -4.0:
-        direction = "STRONG SELL"
-    elif new_score <= -2.0:
-        direction = "SELL"
+    from backend.signal_model import predict_win_probability
+    from backend.honest_assessment import compute_fingerprint
+    signal_types = [s.get("type") for s in result["signals"] if isinstance(s, dict) and s.get("type")]
+    fingerprint = compute_fingerprint(signal_types, _ACTIVE_REGIME)
+    prob_win = predict_win_probability(fingerprint, _ACTIVE_REGIME, signals=result["signals"])
+
+    if prob_win is not None:
+        # Apply score adjustment to probability (0.05 per point)
+        prob_win = max(0.01, min(0.99, prob_win + adj * 0.05))
+        success_probability = round(prob_win * 100)
+        if prob_win >= 0.65:
+            direction = "STRONG BUY"
+        elif prob_win >= 0.55:
+            direction = "BUY"
+        elif prob_win <= 0.35:
+            direction = "STRONG SELL"
+        elif prob_win <= 0.45:
+            direction = "SELL"
+        else:
+            direction = "NEUTRAL"
     else:
-        direction = "NEUTRAL"
+        # Re-classify direction based on new score
+        if new_score >= 4.0:
+            direction = "STRONG BUY"
+        elif new_score >= 2.0:
+            direction = "BUY"
+        elif new_score <= -4.0:
+            direction = "STRONG SELL"
+        elif new_score <= -2.0:
+            direction = "SELL"
+        else:
+            direction = "NEUTRAL"
 
     # Re-compute success probability and honest assessment with new score
     from backend.honest_assessment import get_honest_assessment
     assessment = get_honest_assessment(result.get("signals", []), new_score, _ACTIVE_REGIME)
-    success_probability = assessment.get("probability") or 50
+    if prob_win is None:
+        success_probability = assessment.get("probability") or 50
 
     result["score"] = new_score
     result["direction"] = direction
@@ -409,22 +475,44 @@ def _apply_event_filter(result: dict, event_filter: dict) -> dict:
     result["event_warning"] = warning
     result["upcoming_events"] = event_filter.get("events", [])
 
-    # Re-classify
-    if new_score >= 4.0:
-        direction = "STRONG BUY"
-    elif new_score >= 2.0:
-        direction = "BUY"
-    elif new_score <= -4.0:
-        direction = "STRONG SELL"
-    elif new_score <= -2.0:
-        direction = "SELL"
+    from backend.signal_model import predict_win_probability
+    from backend.honest_assessment import compute_fingerprint
+    signal_types = [s.get("type") for s in result["signals"] if isinstance(s, dict) and s.get("type")]
+    fingerprint = compute_fingerprint(signal_types, _ACTIVE_REGIME)
+    prob_win = predict_win_probability(fingerprint, _ACTIVE_REGIME, signals=result["signals"])
+
+    if prob_win is not None:
+        # Apply score adjustment to probability (0.05 per point)
+        prob_win = max(0.01, min(0.99, prob_win + adj * 0.05))
+        success_probability = round(prob_win * 100)
+        if prob_win >= 0.65:
+            direction = "STRONG BUY"
+        elif prob_win >= 0.55:
+            direction = "BUY"
+        elif prob_win <= 0.35:
+            direction = "STRONG SELL"
+        elif prob_win <= 0.45:
+            direction = "SELL"
+        else:
+            direction = "NEUTRAL"
     else:
-        direction = "NEUTRAL"
+        # Re-classify
+        if new_score >= 4.0:
+            direction = "STRONG BUY"
+        elif new_score >= 2.0:
+            direction = "BUY"
+        elif new_score <= -4.0:
+            direction = "STRONG SELL"
+        elif new_score <= -2.0:
+            direction = "SELL"
+        else:
+            direction = "NEUTRAL"
 
     # Re-compute success probability and honest assessment with new score
     from backend.honest_assessment import get_honest_assessment
     assessment = get_honest_assessment(result.get("signals", []), new_score, _ACTIVE_REGIME)
-    success_probability = assessment.get("probability") or 50
+    if prob_win is None:
+        success_probability = assessment.get("probability") or 50
 
     result["score"] = new_score
     result["direction"] = direction

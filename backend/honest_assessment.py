@@ -240,23 +240,21 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None)
         suggested_size = 10.0
     else:
         # Tier 4: CALIBRATED (check if model is available)
-        beta_0 = get_setting("calibration_model_beta_0")
-        beta_1 = get_setting("calibration_model_beta_1")
-        brier = get_setting("calibration_model_brier")
+        from backend.signal_model import predict_win_probability, load_model_coefficients
+        
+        coefs, cv_auc, cv_brier = load_model_coefficients()
         
         has_calibrated_model = False
-        if beta_0 is not None and beta_1 is not None and brier is not None:
+        if coefs and cv_auc is not None and cv_brier is not None:
             try:
-                b0 = float(beta_0)
-                b1 = float(beta_1)
-                br = float(brier)
-                if br < 0.20:
-                    has_calibrated_model = True
-                    # Model probability formula: sig(beta_0 + beta_1 * abs_score)
-                    logit = b0 + b1 * abs_score
-                    p = 1.0 / (1.0 + math.exp(-max(-15.0, min(15.0, logit))))
-                    probability = round(p * 100, 0)
-                    brier_score = round(br, 2)
+                # AUC > 0.55 and Brier < 0.25 safety check
+                if cv_auc > 0.55 and cv_brier < 0.25:
+                    p = predict_win_probability(fingerprint, regime, signals=signals)
+                    if p is not None:
+                        has_calibrated_model = True
+                        probability = round(p * 100, 0)
+                        br = cv_brier
+                        brier_score = round(br, 2)
                     
                     # Query average positive and absolute average negative returns
                     avg_win = 0.0

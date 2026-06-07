@@ -338,23 +338,9 @@ def compute_signal_performance(window_days: int = 90) -> dict:
         win_rate = (wins / n) if n else 0.0
         wilson = _wilson_lower_bound(wins, n)
 
-        if n < MIN_SAMPLE_SIZE:
-            suggested = default_w
-            verdict = "INSUFFICIENT_DATA"
-        else:
-            suggested = _suggest_weight(default_w, wilson)
-            delta = suggested - default_w
-            if abs(delta) < 0.25:
-                verdict = "KEEP"
-            elif delta > 0 and default_w >= 0:
-                verdict = "TUNE_UP"
-            elif delta < 0 and default_w >= 0:
-                verdict = "TUNE_DOWN"
-            elif delta < 0 and default_w < 0:
-                # weight is negative; suggested even more negative = stronger bearish
-                verdict = "TUNE_UP"
-            else:
-                verdict = "TUNE_DOWN"
+        suggested = default_w
+        verdict = "KEEP"
+        delta = 0.0
 
         out_signals.append({
             "signal_type": label,
@@ -367,7 +353,7 @@ def compute_signal_performance(window_days: int = 90) -> dict:
             "wilson_lower_80": round(wilson, 3),
             "avg_return_5d_pct": round(avg_ret, 3),
             "suggested_weight": round(suggested, 2),
-            "delta": round(suggested - default_w, 2),
+            "delta": round(delta, 2),
             "verdict": verdict,
         })
 
@@ -383,25 +369,7 @@ def compute_signal_performance(window_days: int = 90) -> dict:
 
 
 def _suggest_weight(current: float, wilson_lower: float) -> float:
-    """Map Wilson lower-bound win rate to a suggested weight.
-
-    Logic:
-    - Baseline win rate is 0.50. If wilson > 0.50 the signal is *honestly* good.
-    - Scale magnitude by (wilson - 0.30) / 0.20 so wilson=0.50 → 1.0x current
-      and wilson=0.70 → 2.0x current.
-    - Preserve sign of current weight (bullish stays bullish).
-    - Clip magnitude to [0.0, 3.5] to avoid runaway.
-    """
-    if current == 0:
-        return 0.0
-    sign = 1 if current > 0 else -1
-    magnitude = abs(current)
-    # Scaling: wilson=0.30 → 0x, 0.50 → 1x, 0.70 → 2x, capped at 0..2.5
-    scale = (wilson_lower - 0.30) / 0.20
-    scale = max(0.0, min(2.5, scale))
-    new_mag = magnitude * scale
-    new_mag = max(0.0, min(3.5, new_mag))
-    return round(sign * new_mag, 2)
+    return current
 
 
 def _key_to_label(key: str) -> str:
@@ -412,215 +380,59 @@ def _key_to_label(key: str) -> str:
     return key
 
 
-# --- Tuned weight persistence ---
+# --- Tuned weight persistence (RETIRED) ---
 
 def get_tuned_weights() -> dict[str, float]:
-    """Return user-applied weight overrides from settings, or empty dict."""
-    raw = get_setting(TUNED_WEIGHTS_KEY)
-    if not raw:
-        return {}
-    try:
-        d = json.loads(raw)
-        if isinstance(d, dict):
-            return {k: float(v) for k, v in d.items()}
-    except Exception:
-        pass
+    """Return empty dict (weight overrides retired)."""
     return {}
 
 
 def apply_tuned_weights(window_days: int = 90, only_keys: Optional[list[str]] = None) -> dict:
-    """Compute signal performance and persist suggested weights to settings.
-
-    If `only_keys` is provided, only those keys are tuned (others stay at default).
-    Returns the active tuned weights after the update.
-    """
-    perf = compute_signal_performance(window_days=window_days)
-    new_weights = get_tuned_weights()  # start from existing overrides
-    applied = []
-    for s in perf["signals"]:
-        if s["verdict"] == "INSUFFICIENT_DATA":
-            continue
-        if only_keys is not None and s["weight_key"] not in only_keys:
-            continue
-        if s["delta"] == 0:
-            continue
-        new_weights[s["weight_key"]] = s["suggested_weight"]
-        applied.append({
-            "key": s["weight_key"],
-            "from": s["current_weight"],
-            "to": s["suggested_weight"],
-            "delta": s["delta"],
-            "n": s["n"],
-            "win_rate": s["win_rate"],
-        })
-
-    set_setting(TUNED_WEIGHTS_KEY, json.dumps(new_weights))
-    return {"applied": applied, "active_overrides": new_weights}
+    """No-op. Weight overrides retired."""
+    return {"applied": [], "active_overrides": {}}
 
 
 def reset_tuned_weights() -> None:
-    """Clear all weight overrides — recommender falls back to DEFAULT_WEIGHTS."""
+    """Clear any historical overrides."""
     set_setting(TUNED_WEIGHTS_KEY, None)
 
 
 def get_active_weights() -> dict[str, float]:
-    """Return DEFAULT_WEIGHTS merged with any user-applied tuned overrides.
-
-    The recommender should call this at the start of every `recommend()` run
-    so signal weights stay in sync with the latest tuning.
-    """
+    """Return default weights."""
     from backend.recommender import DEFAULT_WEIGHTS
-    merged = dict(DEFAULT_WEIGHTS)
-    merged.update(get_tuned_weights())
-    return merged
+    return dict(DEFAULT_WEIGHTS)
 
 
-# --- Conditional per-regime weights (Tier 4.1) ---
+# --- Conditional per-regime weights (RETIRED) ---
 
-# Min sample size per regime before a regime-specific override is suggested.
-# Lower than MIN_SAMPLE_SIZE (10) because regime data is sparser.
 MIN_SAMPLE_PER_REGIME = 5
-
-# Don't override unless the regime's Wilson-bounded win rate differs from 0.5
-# by more than this. Otherwise the regime is uninformative for that signal.
 REGIME_OVERRIDE_THRESHOLD = 0.10
 
 
 def compute_regime_conditional_weights(window_days: int = 180) -> dict:
-    """For each signal × regime, suggest a regime-specific weight.
-
-    Returns:
-        {
-            "lookback_days": 180,
-            "by_regime": {
-                "BULL":     {"volume_bullish": {"current": 2.0, "suggested": 2.6,
-                                                "n": 12, "wins": 9, "win_rate": 0.75,
-                                                "wilson": 0.56, "verdict": "OVERRIDE"}},
-                "BEAR":     {"volume_bullish": {..., "verdict": "OVERRIDE_DOWN"}},
-                "SIDEWAYS": {...},
-                "HIGH_VOL": {...},
-            },
-            "summary": {
-                "BULL": {"override_count": 3, "trades_observed": 18},
-                ...
-            }
-        }
-    """
-    from backend.recommender import DEFAULT_WEIGHTS
-    perf = compute_signal_performance_by_regime(window_days=window_days)
-
-    out_by_regime: dict[str, dict] = {}
-    summary: dict[str, dict] = {}
-    base_tuned = get_tuned_weights()
-
-    for sig in perf["by_signal"]:
-        key = sig["weight_key"]
-        # Use the user's tuned base if present, else the default.
-        base_weight = base_tuned.get(key, sig["current_weight"])
-
-        for regime, stats in sig["by_regime"].items():
-            n = stats.get("n", 0)
-            if n < MIN_SAMPLE_PER_REGIME:
-                continue
-            wins = stats.get("wins", 0)
-            wilson = _wilson_lower_bound(wins, n)
-            wr = stats.get("win_rate", 0) or 0
-
-            # Only override if the regime materially shifts win rate
-            if abs(wilson - 0.5) < REGIME_OVERRIDE_THRESHOLD:
-                continue
-
-            suggested = _suggest_weight(base_weight, wilson)
-            delta = suggested - base_weight
-            if abs(delta) < 0.25:
-                continue  # not a meaningful change
-
-            verdict = "OVERRIDE_UP" if delta > 0 and base_weight >= 0 else \
-                      "OVERRIDE_DOWN" if delta < 0 and base_weight >= 0 else \
-                      "OVERRIDE_DOWN" if delta > 0 and base_weight < 0 else \
-                      "OVERRIDE_UP"
-
-            out_by_regime.setdefault(regime, {})[key] = {
-                "current": round(base_weight, 2),
-                "suggested": round(suggested, 2),
-                "delta": round(delta, 2),
-                "n": n,
-                "wins": wins,
-                "win_rate": round(wr, 3),
-                "wilson_lower_80": round(wilson, 3),
-                "avg_return_5d_pct": stats.get("avg_return_5d_pct"),
-                "verdict": verdict,
-            }
-
-    # Build summary counts
-    for regime in ("BULL", "BEAR", "SIDEWAYS", "HIGH_VOL"):
-        regime_overrides = out_by_regime.get(regime, {})
-        summary[regime] = {
-            "override_count": len(regime_overrides),
-        }
-
+    """Regime-specific overrides retired."""
     return {
         "lookback_days": window_days,
         "min_sample_per_regime": MIN_SAMPLE_PER_REGIME,
-        "by_regime": out_by_regime,
-        "summary": summary,
+        "by_regime": {},
+        "summary": {},
     }
 
 
 def get_regime_weights() -> dict[str, dict[str, float]]:
-    """Load persisted per-regime weight overrides from settings."""
-    raw = get_setting(REGIME_WEIGHTS_KEY)
-    if not raw:
-        return {}
-    try:
-        d = json.loads(raw)
-        if isinstance(d, dict):
-            # Coerce inner values to float
-            return {regime: {k: float(v) for k, v in (overrides or {}).items()}
-                    for regime, overrides in d.items()}
-    except Exception:
-        pass
     return {}
 
 
 def apply_regime_weights(window_days: int = 180,
                           only_regimes: Optional[list[str]] = None) -> dict:
-    """Compute conditional regime weights and persist them to settings."""
-    suggestions = compute_regime_conditional_weights(window_days=window_days)
-    new_regime_weights = get_regime_weights()  # start from existing
-    applied_per_regime: dict[str, list] = {}
-
-    for regime, overrides in suggestions["by_regime"].items():
-        if only_regimes is not None and regime not in only_regimes:
-            continue
-        applied_per_regime[regime] = []
-        regime_dict = new_regime_weights.setdefault(regime, {})
-        for key, info in overrides.items():
-            regime_dict[key] = info["suggested"]
-            applied_per_regime[regime].append({
-                "key": key, "to": info["suggested"], "delta": info["delta"],
-                "n": info["n"], "win_rate": info["win_rate"],
-            })
-
-    set_setting(REGIME_WEIGHTS_KEY, json.dumps(new_regime_weights))
-    return {"applied": applied_per_regime, "active_regime_weights": new_regime_weights}
+    return {"applied": {}, "active_regime_weights": {}}
 
 
 def reset_regime_weights() -> None:
-    """Clear all per-regime overrides — falls back to base tuned weights."""
     set_setting(REGIME_WEIGHTS_KEY, None)
 
 
 def get_active_weights_for_regime(regime: Optional[str]) -> dict[str, float]:
-    """Resolve the full weight dict for a given regime.
-
-    Layered merge: DEFAULT_WEIGHTS -> base tuned -> regime overrides.
-    If `regime` is None or unknown, returns the base tuned dict (no regime layer).
-    """
+    """Return default weights."""
     from backend.recommender import DEFAULT_WEIGHTS
-    merged = dict(DEFAULT_WEIGHTS)
-    merged.update(get_tuned_weights())
-    if regime:
-        regime_overrides = get_regime_weights().get(regime, {})
-        merged.update(regime_overrides)
-    return merged
+    return dict(DEFAULT_WEIGHTS)

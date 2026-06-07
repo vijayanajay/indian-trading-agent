@@ -207,6 +207,13 @@ def refresh_paper_trade_prices(trade_id: int = None) -> dict:
     except Exception as e:
         print(f"[Simulation] shadow refresh failed: {e}", flush=True)
 
+    # Trigger model retraining check
+    try:
+        from backend.signal_model import check_and_trigger_retraining
+        check_and_trigger_retraining()
+    except Exception as e:
+        print(f"[Simulation] retraining check failed: {e}", flush=True)
+
     return {
         "ok": True,
         "updated": updated_count,

@@ -205,6 +205,15 @@ def ensure_db():
                 avg_pnl REAL NOT NULL,
                 updated_at TEXT DEFAULT (datetime('now'))
             );
+
+            -- Model coefficients table for L1-regularized logistic regression
+            CREATE TABLE IF NOT EXISTS model_coefficients (
+                feature TEXT PRIMARY KEY,
+                coefficient REAL NOT NULL,
+                auc REAL,
+                brier REAL,
+                last_trained_date TEXT NOT NULL
+            );
         """)
     _migrate_paper_trades_columns()
 

@@ -2,6 +2,18 @@ import pytest
 from unittest.mock import patch, MagicMock
 from backend.recommender import recommend, _apply_market_bias, _apply_concentration_filter, _apply_event_filter
 
+@pytest.fixture(autouse=True)
+def clean_db_and_cache():
+    from backend.db import get_db
+    try:
+        with get_db() as conn:
+            conn.execute("DELETE FROM model_coefficients")
+    except Exception:
+        pass
+    import backend.signal_model
+    backend.signal_model._MODEL_CACHE = None
+    yield
+
 def test_apply_market_bias():
     res = {"score": 3.0, "bullish_signal_count": 2, "bearish_signal_count": 0}
     bias = {"bias": "BULLISH", "score_adjustment": 1.0, "reasoning": "buying"}

@@ -256,105 +256,13 @@ def fit_logistic_regression(X_vals: np.ndarray, y_vals: np.ndarray, lr: float = 
 
 
 def retrain_calibration_model() -> dict:
-    """Train logistic regression model on last 12 months, validate on recent 3 months."""
-    logger.info("Starting calibration model retraining...")
-    today = date.today()
-    three_months_ago = (today - timedelta(days=90)).isoformat()
-    fifteen_months_ago = (today - timedelta(days=450)).isoformat()
-
-    # 1. Fetch closed trades
-    try:
-        with get_db() as conn:
-            # Shadow trades are ground truth of all recommendations; paper trades are user subset.
-            # Query combined dataset where pnl_5d_pct is available
-            rows = conn.execute(
-                """
-                SELECT score, pnl_5d_pct, entry_date FROM (
-                    SELECT score, pnl_5d_pct, entry_date FROM paper_trades WHERE pnl_5d_pct IS NOT NULL AND score IS NOT NULL
-                    UNION ALL
-                    SELECT score, pnl_5d_pct, signal_date as entry_date FROM shadow_trades WHERE pnl_5d_pct IS NOT NULL AND score IS NOT NULL
-                )
-                WHERE entry_date >= ?
-                ORDER BY entry_date ASC
-                """,
-                (fifteen_months_ago,),
-            ).fetchall()
-    except Exception as e:
-        logger.error(f"Failed to retrieve training data: {e}")
-        return {"status": "error", "message": f"Database read failed: {e}"}
-
-    train_X = []
-    train_y = []
-    val_X = []
-    val_y = []
-
-    for r in rows:
-        score = abs(r["score"])
-        success = 1 if r["pnl_5d_pct"] > 0 else 0
-        
-        if r["entry_date"] >= three_months_ago:
-            val_X.append(score)
-            val_y.append(success)
-        else:
-            train_X.append(score)
-            train_y.append(success)
-
-    n_train = len(train_X)
-    n_val = len(val_X)
-    total_samples = n_train + n_val
-
-    if total_samples < 50:
-        logger.warning(f"Insufficient training data: {total_samples} samples. Need at least 50.")
-        return {
-            "status": "warning",
-            "message": f"Insufficient data (n={total_samples}). Need at least 50 closed trades.",
-            "n_samples": total_samples,
-        }
-
-    # Conver to numpy arrays
-    X_train = np.array(train_X)
-    y_train = np.array(train_y)
-    X_val = np.array(val_X)
-    y_val = np.array(val_y)
-
-    # 2. Fit model
-    beta_0, beta_1 = fit_logistic_regression(X_train, y_train)
-
-    # 3. Calculate validation Brier score
-    if n_val > 0:
-        logits_val = beta_0 + beta_1 * X_val
-        probs_val = 1.0 / (1.0 + np.exp(-np.clip(logits_val, -15.0, 15.0)))
-        brier = float(np.mean((probs_val - y_val) ** 2))
-    else:
-        # Fall back to training set Brier if validation is empty (safeguard)
-        logits_train = beta_0 + beta_1 * X_train
-        probs_train = 1.0 / (1.0 + np.exp(-np.clip(logits_train, -15.0, 15.0)))
-        brier = float(np.mean((probs_train - y_train) ** 2))
-
-    logger.info(f"Calibration results: beta_0={beta_0:.4f}, beta_1={beta_1:.4f}, Brier={brier:.4f}")
-
-    # 4. Save results to settings
-    # Note: Brier safety guard is checked in the HonestAssessmentEngine.
-    # We still save the model coefficients, but the engine will bypass it if Brier >= 0.20
-    set_setting("calibration_model_beta_0", str(beta_0))
-    set_setting("calibration_model_beta_1", str(beta_1))
-    set_setting("calibration_model_brier", str(brier))
-    set_setting("calibration_model_trained_at", datetime.now().isoformat())
-    set_setting("calibration_model_n_trades", str(total_samples))
+    """Retrain the L1-regularized logistic regression signal model."""
+    logger.info("Starting signal model retraining via cron...")
+    from backend.signal_model import train_signal_model
+    res = train_signal_model()
+    # Mark last train run time in settings
     set_setting("last_model_retrain_run", datetime.now().isoformat())
-
-    status = "ok" if brier < 0.20 else "failed_brier_threshold"
-    msg = "Model updated successfully." if brier < 0.20 else f"Model Brier score too high ({brier:.3f} >= 0.20). Fallback active."
-    
-    return {
-        "status": status,
-        "message": msg,
-        "beta_0": beta_0,
-        "beta_1": beta_1,
-        "brier_score": brier,
-        "n_train": n_train,
-        "n_val": n_val,
-    }
+    return res
 
 
 def _cron_loop():
