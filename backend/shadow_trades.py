@@ -89,13 +89,28 @@ def record_shadow_trades_from_recommendations(recs: dict) -> dict:
         if triggered and not isinstance(triggered, str):
             triggered = json.dumps(triggered)
 
+        # Fingerprint computation
+        signal_fingerprint = None
+        try:
+            from backend.honest_assessment import compute_fingerprint
+            signals_list = pick.get("signals") or []
+            if isinstance(signals_list, str):
+                try:
+                    signals_list = json.loads(signals_list)
+                except Exception:
+                    signals_list = []
+            signal_types = [s.get("type") for s in signals_list if isinstance(s, dict) and s.get("type")]
+            signal_fingerprint = compute_fingerprint(signal_types, current_regime)
+        except Exception:
+            pass
+
         with get_db() as conn:
             try:
                 conn.execute(
                     """INSERT OR IGNORE INTO shadow_trades
                     (ticker, signal_date, signal, score, confidence, success_probability,
-                     triggered_signals, regime_at_entry, entry_price, user_tracked)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                     triggered_signals, regime_at_entry, entry_price, user_tracked, signal_fingerprint)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         ticker,
                         today,
@@ -107,6 +122,7 @@ def record_shadow_trades_from_recommendations(recs: dict) -> dict:
                         current_regime,
                         float(entry_price),
                         1 if ticker in existing_user_tickers else 0,
+                        signal_fingerprint,
                     ),
                 )
                 recorded += 1

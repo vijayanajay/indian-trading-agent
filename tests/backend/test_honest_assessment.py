@@ -157,3 +157,109 @@ def test_honest_assessment_tiers():
     set_setting("calibration_model_brier", "0.22")
     assessment = get_honest_assessment(signals, score, regime)
     assert assessment["tier"] == "EMPIRICAL"  # Bypassed model due to Brier safety check
+
+
+def test_fingerprint_insertion_and_migration():
+    """Verify that fingerprints are computed on paper and shadow trade insertion, backfilled correctly, and fallback queries work."""
+    from backend.db import add_paper_trade
+    from backend.shadow_trades import record_shadow_trades_from_recommendations
+    from backend.backfill_fingerprints import backfill_fingerprints
+    import json
+
+    # 1. Test paper trade insert fingerprint computation
+    signals = [{"type": "Breakout"}, {"type": "RSI Oversold"}]
+    trade_id = add_paper_trade({
+        "ticker": "RELIANCE",
+        "entry_price": 2500.0,
+        "triggered_signals": signals,
+        "regime_at_entry": "BULL",
+    })
+
+    expected_fp = compute_fingerprint(["Breakout", "RSI Oversold"], "BULL")
+
+    with get_db() as conn:
+        row = conn.execute("SELECT signal_fingerprint FROM paper_trades WHERE id = ?", (trade_id,)).fetchone()
+        assert row is not None
+        assert row["signal_fingerprint"] == expected_fp
+
+    # 2. Test shadow trade insert fingerprint computation
+    recs = {
+        "strong_buys": [{
+            "ticker": "TCS",
+            "price": 3200.0,
+            "confidence": "HIGH",
+            "signals": [{"type": "Volume Spike"}],
+            "direction": "LONG",
+            "score": 4.5,
+            "success_probability": 70,
+        }]
+    }
+    
+    # We need to mock get_current_regime to return "BULL"
+    with patch("backend.market_regime.get_current_regime", return_value={"regime": "BULL"}):
+        res = record_shadow_trades_from_recommendations(recs)
+        assert res["recorded"] == 1
+
+    expected_shadow_fp = compute_fingerprint(["Volume Spike"], "BULL")
+    with get_db() as conn:
+        row = conn.execute("SELECT signal_fingerprint FROM shadow_trades WHERE ticker = 'TCS'").fetchone()
+        assert row is not None
+        assert row["signal_fingerprint"] == expected_shadow_fp
+
+    # 3. Test backfill migration
+    # Insert trades with NULL fingerprints
+    with get_db() as conn:
+        # Paper trade without fingerprint
+        conn.execute(
+            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, regime_at_entry, signal_fingerprint)
+               VALUES (?, ?, ?, ?, NULL)""",
+            ("INFY", 1400.0, json.dumps([{"type": "Gap Up"}]), "BEAR")
+        )
+        # Shadow trade without fingerprint
+        conn.execute(
+            """INSERT INTO shadow_trades (ticker, signal_date, entry_price, triggered_signals, regime_at_entry, signal_fingerprint)
+               VALUES (?, ?, ?, ?, ?, NULL)""",
+            ("WIPRO", "2026-06-01", 400.0, json.dumps([{"type": "Gap Up"}]), "BEAR")
+        )
+
+    # Run backfill
+    stats = backfill_fingerprints()
+    assert stats["paper_updated"] >= 1
+    assert stats["shadow_updated"] >= 1
+
+    expected_backfilled_fp = compute_fingerprint(["Gap Up"], "BEAR")
+    with get_db() as conn:
+        row_paper = conn.execute("SELECT signal_fingerprint FROM paper_trades WHERE ticker = 'INFY'").fetchone()
+        assert row_paper["signal_fingerprint"] == expected_backfilled_fp
+
+        row_shadow = conn.execute("SELECT signal_fingerprint FROM shadow_trades WHERE ticker = 'WIPRO'").fetchone()
+        assert row_shadow["signal_fingerprint"] == expected_backfilled_fp
+
+    # 4. Test fallback query in get_honest_assessment (with cache miss)
+    # Clear cache and insert historical closed trades under the "Gap Up" (BEAR) fingerprint
+    with get_db() as conn:
+        conn.execute("DELETE FROM signal_performance_cache")
+        conn.execute("DELETE FROM paper_trades")
+        conn.execute("DELETE FROM shadow_trades")
+        
+        # Insert 15 closed trades (e.g. 10 paper, 5 shadow) to trigger EMERGING tier (10 <= n < 30)
+        # All with pnl_5d_pct set (so they count as closed)
+        for i in range(10):
+            conn.execute(
+                """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, regime_at_entry, pnl_5d_pct, signal_fingerprint)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (f"P_{i}", 100.0, json.dumps([{"type": "Gap Up"}]), "BEAR", 1.5 if i % 2 == 0 else -1.0, expected_backfilled_fp)
+            )
+        for i in range(5):
+            conn.execute(
+                """INSERT INTO shadow_trades (ticker, signal_date, entry_price, triggered_signals, regime_at_entry, pnl_5d_pct, signal_fingerprint)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (f"S_{i}", f"2026-06-0{i}", 100.0, json.dumps([{"type": "Gap Up"}]), "BEAR", 2.0, expected_backfilled_fp)
+            )
+
+    # Call get_honest_assessment for "Gap Up" under BEAR regime
+    assessment = get_honest_assessment([{"type": "Gap Up"}], 3.0, "BEAR")
+    assert assessment["n_trades"] == 15
+    assert assessment["tier"] == "EMERGING"
+    assert assessment["suggested_position_size_pct"] == 7.5
+

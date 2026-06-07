@@ -206,6 +206,7 @@ def ensure_db():
                 updated_at TEXT DEFAULT (datetime('now'))
             );
         """)
+    _migrate_paper_trades_columns()
 
 
 @contextmanager
