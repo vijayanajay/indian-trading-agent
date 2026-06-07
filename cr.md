@@ -1,0 +1,4 @@
+- Implemented standard Wilder's RSI calculation with exponential smoothing in recommender.py and simulation.py.
+- Replaced the naive simple-average 15-day RSI lookback logic with convergence on the full closes history.
+- Fixed the array slicing bug in _compute_rsi where it was slicing from the start of the series rather than the end.
+- Added top-level numpy imports to simulation.py to support the new helper function.

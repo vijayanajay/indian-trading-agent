@@ -5,6 +5,7 @@ All simulations are FREE (pure price math from yfinance, no AI API calls).
 
 import yfinance as yf
 import uuid
+import numpy as np
 from datetime import datetime, timedelta, date
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tradingagents.utils.ticker import normalize_ticker
@@ -248,6 +249,30 @@ def paper_trading_stats() -> dict:
 # HISTORICAL BACKTEST — run recommender on past dates
 # ============================================================
 
+def _compute_rsi(closes, period=14):
+    """Calculate Wilder's RSI using exponential smoothing."""
+    if len(closes) <= period:
+        return None
+    deltas = np.diff(closes)
+    gains = np.where(deltas > 0, deltas, 0.0)
+    losses = np.where(deltas < 0, -deltas, 0.0)
+    
+    # First value is the simple average
+    avg_gain = np.mean(gains[:period])
+    avg_loss = np.mean(losses[:period])
+    
+    # Wilder's smoothing
+    for i in range(period, len(deltas)):
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+        
+    if avg_loss == 0:
+        return 100.0
+    
+    rs = avg_gain / avg_loss
+    return 100.0 - (100.0 / (1.0 + rs))
+
+
 def _analyze_stock_at_date(ticker: str, target_date: date) -> dict | None:
     """Replay the recommender logic for a stock AS OF a specific past date.
 
@@ -323,16 +348,12 @@ def _analyze_stock_at_date(ticker: str, target_date: date) -> dict | None:
                 score += -1.5
 
         # RSI
-        if len(closes) >= 15:
-            deltas = np.diff(closes[-15:])
-            up = deltas[deltas >= 0].sum() / 14
-            down = -deltas[deltas < 0].sum() / 14
-            if down > 0:
-                rsi = 100 - 100 / (1 + up / down)
-                if rsi < 30:
-                    score += 1.5
-                elif rsi > 70:
-                    score += -1.0
+        rsi = _compute_rsi(closes)
+        if rsi is not None:
+            if rsi < 30:
+                score += 1.5
+            elif rsi > 70:
+                score += -1.0
 
         # Determine signal + direction
         if score >= 4.0:

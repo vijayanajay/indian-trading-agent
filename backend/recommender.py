@@ -79,15 +79,27 @@ _ACTIVE_REGIME: str | None = None
 
 
 def _compute_rsi(closes, period=14):
-    """Simple RSI calculation."""
+    """Calculate Wilder's RSI using exponential smoothing."""
+    if len(closes) <= period:
+        return None
     deltas = np.diff(closes)
-    seed = deltas[:period]
-    up = seed[seed >= 0].sum() / period
-    down = -seed[seed < 0].sum() / period
-    if down == 0:
-        return 100
-    rs = up / down
-    return 100 - 100 / (1 + rs)
+    gains = np.where(deltas > 0, deltas, 0.0)
+    losses = np.where(deltas < 0, -deltas, 0.0)
+    
+    # First value is the simple average
+    avg_gain = np.mean(gains[:period])
+    avg_loss = np.mean(losses[:period])
+    
+    # Wilder's smoothing
+    for i in range(period, len(deltas)):
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+        
+    if avg_loss == 0:
+        return 100.0
+    
+    rs = avg_gain / avg_loss
+    return 100.0 - (100.0 / (1.0 + rs))
 
 
 def _analyze_stock(ticker: str) -> dict | None:
@@ -183,16 +195,14 @@ def _analyze_stock(ticker: str) -> dict | None:
             signals.append({"type": "Near Major Resistance", "direction": "BEARISH", "value": f"{distance_to_high:.1f}% below high", "weight": _ACTIVE_WEIGHTS["near_resistance"]})
 
         # === RSI ===
-        if len(closes) >= 14:
-            rsi = _compute_rsi(closes[-15:])
+        rsi = _compute_rsi(closes)
+        if rsi is not None:
             if rsi < 30:
                 score += _ACTIVE_WEIGHTS["rsi_oversold"]
                 signals.append({"type": "RSI Oversold", "direction": "BULLISH", "value": f"RSI {rsi:.1f}", "weight": _ACTIVE_WEIGHTS["rsi_oversold"]})
             elif rsi > 70:
                 score += _ACTIVE_WEIGHTS["rsi_overbought"]
                 signals.append({"type": "RSI Overbought", "direction": "BEARISH", "value": f"RSI {rsi:.1f}", "weight": _ACTIVE_WEIGHTS["rsi_overbought"]})
-        else:
-            rsi = None
 
         # === CYCLICAL (MONTHLY) ===
         current_month = datetime.now().month
