@@ -15,4 +15,14 @@
 - Integrated dynamic portfolio drawdown calculation (`get_portfolio_drawdown()`) by simulating compounding equity across historical paper trades.
 - Implemented position sizing safety caps (15% limit), portfolio drawdown ceilings (>10% override to 0%), and negative Kelly fraction overrides ("DO NOT TRADE").
 - Added comprehensive unit tests for Kelly Criterion calculations, defaults, overrides, and drawdown calculation.
+- Replaced the linear additive scoring engine inside `_analyze_stock()` with a trained L1-regularized logistic regression probabilistic model.
+- Created `signal_model.py` module to extract a 28-dimensional binary feature vector (17 signals + 4 regimes + 6 interaction terms + intercept) and fit weights.
+- Implemented an in-house Proximal Gradient Descent (Iterative Soft Thresholding Algorithm / ISTA) solver in pure Python/NumPy for L1 regularization.
+- Created `model_coefficients` database table to store fitted weights, validation AUC, Brier score, and training timestamp.
+- Implemented 5-fold cross-validation and validation safety checks (promoting the model to active only if AUC > 0.55 and Brier < 0.25).
+- Integrated model win probabilities in the `CALIBRATED` tier of `get_honest_assessment()` to drive Kelly position sizing.
+- Added automatic background retraining daemon checks triggered asynchronously when 20+ new closed trades accumulate.
+- Retired the legacy manual/automatic weight tuning suggestion logic in `signal_performance.py`.
+- Wrote unit test coverage for the new feature vectorization, ISTA optimizer, cross-validation metrics, database persistence, and triggers.
+
 
