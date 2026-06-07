@@ -57,6 +57,31 @@ const confidenceStyles: Record<string, string> = {
   LOW: "bg-gray-50 text-gray-600 border-gray-200",
 };
 
+function HonestAssessmentBadge({ assessment }: { assessment: any }) {
+  if (!assessment) return null;
+  const { tier, display_message } = assessment;
+  let bg = "bg-gray-50 border-gray-200 text-gray-700";
+  if (tier === "EXPLORATORY") {
+    bg = "bg-amber-50 border-amber-200 text-amber-700";
+  } else if (tier === "EMERGING") {
+    bg = "bg-blue-50 border-blue-200 text-blue-700";
+  } else if (tier === "EMPIRICAL") {
+    bg = "bg-indigo-50 border-indigo-200 text-indigo-700";
+  } else if (tier === "CALIBRATED") {
+    bg = "bg-green-100 border-green-300 text-green-800 font-semibold";
+  }
+
+  return (
+    <Badge variant="outline" className={`border ${bg} text-xs py-1 px-2.5 flex items-center gap-1.5`}>
+      {tier === "EXPLORATORY" && "⚠️"}
+      {tier === "EMERGING" && "📊"}
+      {tier === "EMPIRICAL" && "📈"}
+      {tier === "CALIBRATED" && "🎯"}
+      {display_message}
+    </Badge>
+  );
+}
+
 function RecommendationCard({ rec }: { rec: any }) {
   const [expanded, setExpanded] = useState(false);
   const style = ratingStyles[rec.direction] || ratingStyles.BUY;
@@ -80,11 +105,7 @@ function RecommendationCard({ rec }: { rec: any }) {
                 <Badge variant="outline" className={confidenceStyles[rec.confidence]}>
                   {rec.confidence} confidence
                 </Badge>
-                {rec.success_probability && (
-                  <Badge variant="outline" className={rec.success_probability >= 70 ? "bg-green-100 text-green-800 border-green-300" : rec.success_probability >= 60 ? "bg-yellow-50 text-yellow-700 border-yellow-200" : "bg-gray-50 text-gray-600 border-gray-200"}>
-                    {rec.success_probability}% estimated success
-                  </Badge>
-                )}
+                <HonestAssessmentBadge assessment={rec.honest_assessment} />
                 <Badge variant="outline" className="text-xs">
                   Score: {rec.score >= 0 ? "+" : ""}{rec.score}
                 </Badge>
@@ -115,7 +136,7 @@ function RecommendationCard({ rec }: { rec: any }) {
                     signal: rec.direction,
                     score: rec.score,
                     confidence: rec.confidence,
-                    success_probability: rec.success_probability,
+                    success_probability: rec.honest_assessment?.probability ?? rec.success_probability,
                     triggered_signals: rec.signals,
                   } as any);
                   toast.success(`${rec.ticker} tracked at Rs.${rec.price}`, {

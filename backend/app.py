@@ -24,6 +24,12 @@ async def lifespan(app: FastAPI):
     load_api_keys_into_env()
     # Apply saved LLM config to DEFAULT_CONFIG
     apply_llm_config_to_default()
+    # Start background cron daemon for fingerprinting & calibration
+    try:
+        from backend.cron import start_cron_daemon
+        start_cron_daemon()
+    except Exception as e:
+        print(f"[lifespan] Failed to start cron daemon: {e}", flush=True)
     yield
 
 

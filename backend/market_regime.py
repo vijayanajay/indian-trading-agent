@@ -95,7 +95,8 @@ def classify_regime_for_date(target_date: Optional[date] = None) -> dict:
     for i in range(120, 20, -5):  # sample 20 windows over the last 120 days
         if i + 20 < len(closes):
             baseline_vols.append(_annualized_vol(closes[: -i] if i else closes, window=20))
-    vol_baseline = float(np.mean([v for v in baseline_vols if v > 0])) if baseline_vols else current_vol
+    valid_baseline_vols = [v for v in baseline_vols if v > 0]
+    vol_baseline = float(np.mean(valid_baseline_vols)) if valid_baseline_vols else current_vol
 
     # Classify
     if vol_baseline > 0 and current_vol > vol_baseline * HIGH_VOL_MULTIPLIER:

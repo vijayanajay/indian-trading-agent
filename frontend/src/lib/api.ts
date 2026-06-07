@@ -237,6 +237,15 @@ export const refreshShadowTrades = () =>
 export const getConfidenceCalibration = (windowDays = 180) =>
   fetchAPI(`/api/confidence-calibration/?window_days=${windowDays}`);
 
+export const getCalibrationModelStatus = () =>
+  fetchAPI(`/api/confidence-calibration/model-status`);
+
+export const retrainCalibrationModel = () =>
+  fetchAPI(`/api/confidence-calibration/retrain`, { method: "POST" });
+
+export const recomputeCalibrationFingerprints = () =>
+  fetchAPI(`/api/confidence-calibration/recompute-fingerprints`, { method: "POST" });
+
 // Verdict Calibration (does the daily verdict actually predict Nifty?)
 export const getVerdictCalibration = (windowDays = 90) =>
   fetchAPI(`/api/verdict-calibration/?window_days=${windowDays}`);

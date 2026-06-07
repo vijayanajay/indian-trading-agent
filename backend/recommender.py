@@ -250,19 +250,10 @@ def _analyze_stock(ticker: str) -> dict | None:
         aligned_count = max(len(bullish_signals), len(bearish_signals))
         confidence = "HIGH" if aligned_count >= 4 else ("MEDIUM" if aligned_count >= 2 else "LOW")
 
-        # Calculate estimated probability of success based on score + alignment
-        # Historical baseline: 50% random, each aligned signal adds edge
-        # Weights are calibrated to approximately match historical win rates
-        abs_score = abs(score)
-        base_prob = 50.0  # Baseline 50/50
-        # Each point of score adds ~4% edge (calibrated from historical performance)
-        score_edge = min(abs_score * 4, 30)
-        # Aligned signals add confirmation bonus
-        alignment_bonus = min(aligned_count * 2, 15)
-        success_probability = round(min(base_prob + score_edge + alignment_bonus, 85), 0)
-        # For neutral/conflicting, cap at baseline
-        if abs_score < 2:
-            success_probability = 50
+        # Calculate estimated probability of success based on score + alignment using HonestAssessmentEngine
+        from backend.honest_assessment import get_honest_assessment
+        assessment = get_honest_assessment(signals, score, _ACTIVE_REGIME)
+        success_probability = assessment.get("probability") or 50
 
         price_change_day = (current_close - prev_close) / prev_close * 100
 
@@ -276,6 +267,7 @@ def _analyze_stock(ticker: str) -> dict | None:
             "direction": direction,
             "confidence": confidence,
             "success_probability": int(success_probability),
+            "honest_assessment": assessment,
             "signals": signals,
             "bullish_signal_count": len(bullish_signals),
             "bearish_signal_count": len(bearish_signals),
@@ -319,18 +311,15 @@ def _apply_market_bias(result: dict, bias: dict) -> dict:
     else:
         direction = "NEUTRAL"
 
-    # Re-compute success probability with new score
-    abs_score = abs(new_score)
-    aligned = max(result.get("bullish_signal_count", 0), result.get("bearish_signal_count", 0))
-    score_edge = min(abs_score * 4, 30)
-    alignment_bonus = min(aligned * 2, 15)
-    success_probability = round(min(50 + score_edge + alignment_bonus, 85), 0)
-    if abs_score < 2:
-        success_probability = 50
+    # Re-compute success probability and honest assessment with new score
+    from backend.honest_assessment import get_honest_assessment
+    assessment = get_honest_assessment(result.get("signals", []), new_score, _ACTIVE_REGIME)
+    success_probability = assessment.get("probability") or 50
 
     result["score"] = new_score
     result["direction"] = direction
     result["success_probability"] = int(success_probability)
+    result["honest_assessment"] = assessment
     result["market_bias_applied"] = bias["bias"]
 
     return result
@@ -373,17 +362,15 @@ def _apply_concentration_filter(result: dict, concentration_check: dict) -> dict
     else:
         direction = "NEUTRAL"
 
-    abs_score = abs(new_score)
-    aligned = max(result.get("bullish_signal_count", 0), result.get("bearish_signal_count", 0))
-    score_edge = min(abs_score * 4, 30)
-    alignment_bonus = min(aligned * 2, 15)
-    success_probability = round(min(50 + score_edge + alignment_bonus, 85), 0)
-    if abs_score < 2:
-        success_probability = 50
+    # Re-compute success probability and honest assessment with new score
+    from backend.honest_assessment import get_honest_assessment
+    assessment = get_honest_assessment(result.get("signals", []), new_score, _ACTIVE_REGIME)
+    success_probability = assessment.get("probability") or 50
 
     result["score"] = new_score
     result["direction"] = direction
     result["success_probability"] = int(success_probability)
+    result["honest_assessment"] = assessment
 
     return result
 
@@ -424,17 +411,15 @@ def _apply_event_filter(result: dict, event_filter: dict) -> dict:
     else:
         direction = "NEUTRAL"
 
-    abs_score = abs(new_score)
-    aligned = max(result.get("bullish_signal_count", 0), result.get("bearish_signal_count", 0))
-    score_edge = min(abs_score * 4, 30)
-    alignment_bonus = min(aligned * 2, 15)
-    success_probability = round(min(50 + score_edge + alignment_bonus, 85), 0)
-    if abs_score < 2:
-        success_probability = 50
+    # Re-compute success probability and honest assessment with new score
+    from backend.honest_assessment import get_honest_assessment
+    assessment = get_honest_assessment(result.get("signals", []), new_score, _ACTIVE_REGIME)
+    success_probability = assessment.get("probability") or 50
 
     result["score"] = new_score
     result["direction"] = direction
     result["success_probability"] = int(success_probability)
+    result["honest_assessment"] = assessment
 
     return result
 
@@ -513,9 +498,10 @@ def recommend(
                 if apply_concentration_check and result.get("direction") in ("STRONG BUY", "BUY"):
                     try:
                         from backend.concentration import check_new_trade_concentration
+                        suggested_size_pct = result.get("honest_assessment", {}).get("suggested_position_size_pct", 10.0)
                         conc_check = check_new_trade_concentration(
                             result["ticker"],
-                            proposed_position_value=total_capital * 0.1,  # 10% per position assumed
+                            proposed_position_value=total_capital * (suggested_size_pct / 100.0),
                             total_capital=total_capital,
                         )
                         result = _apply_concentration_filter(result, conc_check)

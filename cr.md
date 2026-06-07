@@ -2,3 +2,9 @@
 - Replaced the naive simple-average 15-day RSI lookback logic with convergence on the full closes history.
 - Fixed the array slicing bug in _compute_rsi where it was slicing from the start of the series rather than the end.
 - Added top-level numpy imports to simulation.py to support the new helper function.
+- Implemented Three-Tier Honest Forecasting (4-tier data quality classification) to replace legacy success probability calculations.
+- Integrated `HonestAssessmentEngine` to assess signal fingerprints + market regimes across all recommendation stages.
+- Added a NumPy-based Newton-Raphson logistic regression solver for calibration modeling with validation Brier score safety checks.
+- Implemented a background cron daemon to daily backfill fingerprints/rebuild caches and weekly retrain the calibration model.
+- Added manual training, status, and backfill API endpoints in the backend and updated Next.js frontend pages/badges.
+- Added unit tests in `test_honest_assessment.py` achieving full coverage and passing all test suites.

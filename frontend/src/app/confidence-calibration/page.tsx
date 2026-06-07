@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getConfidenceCalibration } from "@/lib/api";
+import {
+  getConfidenceCalibration,
+  getCalibrationModelStatus,
+  retrainCalibrationModel,
+  recomputeCalibrationFingerprints
+} from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -90,18 +95,60 @@ function pct(x: number | null | undefined, digits = 0): string {
 
 export default function ConfidenceCalibrationPage() {
   const [data, setData] = useState<Calibration | null>(null);
+  const [modelStatus, setModelStatus] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [training, setTraining] = useState(false);
+  const [backfilling, setBackfilling] = useState(false);
   const [windowDays, setWindowDays] = useState(180);
 
   const load = async () => {
     setLoading(true);
     try {
-      const r: any = await getConfidenceCalibration(windowDays);
-      setData(r);
+      const [cal, status]: any[] = await Promise.all([
+        getConfidenceCalibration(windowDays),
+        getCalibrationModelStatus().catch(() => null),
+      ]);
+      setData(cal);
+      setModelStatus(status);
     } catch (e: any) {
       toast.error(e.message || "Failed to load calibration");
     }
     setLoading(false);
+  };
+
+  const handleRetrain = async () => {
+    setTraining(true);
+    try {
+      const res: any = await retrainCalibrationModel();
+      if (res.status === "ok") {
+        toast.success("Calibration model trained successfully!");
+      } else if (res.status === "warning") {
+        toast.warning(res.message);
+      } else {
+        toast.error(res.message || "Model training failed.");
+      }
+      await load();
+    } catch (e: any) {
+      toast.error(e.message || "Failed to retrain model");
+    } finally {
+      setTraining(false);
+    }
+  };
+
+  const handleBackfill = async () => {
+    setBackfilling(true);
+    try {
+      const res: any = await recomputeCalibrationFingerprints();
+      toast.success("Fingerprint backfill & cache rebuild complete!", {
+        description: `Updated ${res.trades_updated} paper trades, ${res.shadow_updated} shadow trades, rebuilt ${res.cache_rows} cache entries.`,
+        duration: 5000,
+      });
+      await load();
+    } catch (e: any) {
+      toast.error(e.message || "Failed to backfill fingerprints");
+    } finally {
+      setBackfilling(false);
+    }
   };
 
   useEffect(() => {
@@ -220,6 +267,130 @@ export default function ConfidenceCalibrationPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Model Health Section */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <Card className="border-cyan-200">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Gauge className="h-5 w-5 text-cyan-600" />
+              Calibrated Forecasting Model Status
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {modelStatus ? (
+              <div className="space-y-3">
+                <div className="flex justify-between items-center pb-2 border-b">
+                  <span className="text-sm text-muted-foreground">Model Status:</span>
+                  {modelStatus.has_model ? (
+                    modelStatus.brier_safety_active ? (
+                      <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
+                        🔴 Inactive (Brier Safety Fallback)
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300">
+                        🟢 Active (Calibrated Probability)
+                      </Badge>
+                    )
+                  ) : (
+                    <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+                      🟡 No Model (Fallback to Empirical)
+                    </Badge>
+                  )}
+                </div>
+                
+                {modelStatus.has_model && (
+                  <div className="grid grid-cols-2 gap-2 text-xs pt-1">
+                    <div className="p-2 bg-muted/40 rounded">
+                      <p className="text-muted-foreground">Intercept (β₀)</p>
+                      <p className="text-sm font-mono font-semibold mt-0.5">{modelStatus.beta_0?.toFixed(4)}</p>
+                    </div>
+                    <div className="p-2 bg-muted/40 rounded">
+                      <p className="text-muted-foreground">Score Coeff (β₁)</p>
+                      <p className="text-sm font-mono font-semibold mt-0.5">{modelStatus.beta_1?.toFixed(4)}</p>
+                    </div>
+                    <div className="p-2 bg-muted/40 rounded">
+                      <p className="text-muted-foreground">Val. Brier Score</p>
+                      <p className="text-sm font-mono font-semibold mt-0.5 text-cyan-700">{modelStatus.brier_score?.toFixed(3)}</p>
+                    </div>
+                    <div className="p-2 bg-muted/40 rounded">
+                      <p className="text-muted-foreground">Training Samples</p>
+                      <p className="text-sm font-mono font-semibold mt-0.5">{modelStatus.n_trades} trades</p>
+                    </div>
+                  </div>
+                )}
+                
+                {modelStatus.trained_at && (
+                  <p className="text-[11px] text-muted-foreground pt-1">
+                    Last Trained: {new Date(modelStatus.trained_at).toLocaleString()}
+                  </p>
+                )}
+
+                {modelStatus.brier_safety_active && (
+                  <p className="text-xs text-red-600 bg-red-50 p-2 rounded border border-red-100">
+                    ⚠️ Validation Brier score of {modelStatus.brier_score?.toFixed(3)} is ≥ 0.20. The model is deemed statistically inaccurate and is bypassed. The recommender automatically falls back to empirical rates.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="text-center text-muted-foreground py-6 text-sm">
+                Loading model status...
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="border-cyan-200">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Gauge className="h-5 w-5 text-cyan-600" />
+              Calibration Operations
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 pt-2">
+            <div className="space-y-3">
+              <div>
+                <h4 className="text-sm font-semibold">Model Calibration</h4>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Train a logistic regression model on historical recommendation scores to map them to statistical success probabilities.
+                </p>
+                <Button 
+                  className="w-full mt-2" 
+                  size="sm" 
+                  onClick={handleRetrain} 
+                  disabled={training || loading}
+                >
+                  {training ? (
+                    <><Loader2 className="h-4 w-4 animate-spin mr-2" />Fitting Model...</>
+                  ) : (
+                    "Retrain Logistic Regression"
+                  )}
+                </Button>
+              </div>
+
+              <div className="pt-3 border-t">
+                <h4 className="text-sm font-semibold">Metadata Fingerprint Backfill</h4>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Recompute signal fingerprints and build O(1) cache for Nifty regimes, volatility, and institutional flow records over the last 180 days.
+                </p>
+                <Button 
+                  className="w-full mt-2" 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={handleBackfill} 
+                  disabled={backfilling || loading}
+                >
+                  {backfilling ? (
+                    <><Loader2 className="h-4 w-4 animate-spin mr-2" />Recomputing Cache...</>
+                  ) : (
+                    "Run Fingerprint Backfill"
+                  )}
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Reliability diagram */}
       <Card>

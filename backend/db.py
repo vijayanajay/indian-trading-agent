@@ -109,7 +109,11 @@ def ensure_db():
                 pnl_10d_pct REAL,
                 status TEXT DEFAULT 'active',       -- active | expired | manually_closed
                 notes TEXT,
-                updated_at TEXT DEFAULT (datetime('now'))
+                updated_at TEXT DEFAULT (datetime('now')),
+                signal_fingerprint TEXT,
+                regime_at_entry TEXT,
+                fii_flow_at_entry TEXT,
+                volatility_at_entry REAL
             );
 
             -- Daily Verdict snapshots — measures whether the verdict actually predicted Nifty's move
@@ -164,6 +168,9 @@ def ensure_db():
                 user_tracked INTEGER DEFAULT 0,         -- 1 if user also opened a paper_trade for this ticker on this day
                 created_at TEXT DEFAULT (datetime('now')),
                 updated_at TEXT DEFAULT (datetime('now')),
+                signal_fingerprint TEXT,
+                fii_flow_at_entry TEXT,
+                volatility_at_entry REAL,
                 PRIMARY KEY (ticker, signal_date)       -- idempotent: one shadow per ticker per day
             );
 
@@ -185,6 +192,18 @@ def ensure_db():
                 outcome_1d TEXT,                    -- win | loss | breakeven
                 outcome_5d TEXT,
                 created_at TEXT DEFAULT (datetime('now'))
+            );
+
+            -- Performance Cache for O(1) lookups
+            CREATE TABLE IF NOT EXISTS signal_performance_cache (
+                fingerprint TEXT PRIMARY KEY,
+                n_trades INTEGER NOT NULL,
+                wins INTEGER NOT NULL,
+                win_rate REAL NOT NULL,
+                wilson_lower REAL NOT NULL,
+                wilson_upper REAL NOT NULL,
+                avg_pnl REAL NOT NULL,
+                updated_at TEXT DEFAULT (datetime('now'))
             );
         """)
 
@@ -405,12 +424,47 @@ def add_paper_trade(data: dict) -> int:
         except Exception:
             regime_at_entry = None
 
+    # Volatility and FII flow lookups
+    fii_flow_at_entry = None
+    volatility_at_entry = None
+    try:
+        from backend.fii_dii import get_today_data
+        fii_info = get_today_data()
+        if fii_info and fii_info.get("fii_net") is not None:
+            fii_flow_at_entry = f"{fii_info['fii_net']:.0f} Cr"
+    except Exception:
+        pass
+
+    try:
+        from backend.market_regime import get_current_regime
+        regime_info = get_current_regime()
+        if regime_info.get("annualized_vol_pct") is not None:
+            volatility_at_entry = regime_info["annualized_vol_pct"]
+    except Exception:
+        pass
+
+    # Fingerprint computation
+    signal_fingerprint = None
+    try:
+        from backend.honest_assessment import compute_fingerprint
+        signals_list = data.get("triggered_signals") or []
+        if isinstance(signals_list, str):
+            try:
+                signals_list = json.loads(signals_list)
+            except Exception:
+                signals_list = []
+        signal_types = [s.get("type") for s in signals_list if isinstance(s, dict) and s.get("type")]
+        signal_fingerprint = compute_fingerprint(signal_types, regime_at_entry)
+    except Exception:
+        pass
+
     with get_db() as conn:
         cursor = conn.execute(
             """INSERT INTO paper_trades
             (ticker, source, strategy, direction, signal, score, confidence,
-             success_probability, triggered_signals, entry_price, notes, regime_at_entry)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+             success_probability, triggered_signals, entry_price, notes, regime_at_entry,
+             signal_fingerprint, fii_flow_at_entry, volatility_at_entry)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 data.get("ticker"),
                 data.get("source", "manual"),
@@ -424,6 +478,9 @@ def add_paper_trade(data: dict) -> int:
                 data.get("entry_price"),
                 data.get("notes"),
                 regime_at_entry,
+                signal_fingerprint,
+                fii_flow_at_entry,
+                volatility_at_entry,
             ),
         )
         return cursor.lastrowid
@@ -432,16 +489,33 @@ def add_paper_trade(data: dict) -> int:
 def _migrate_paper_trades_columns():
     """Add new columns to paper_trades if they don't exist (for existing DBs)."""
     with get_db() as conn:
-        existing = {row["name"] for row in conn.execute("PRAGMA table_info(paper_trades)").fetchall()}
+        # Migrate paper_trades
+        existing_paper = {row["name"] for row in conn.execute("PRAGMA table_info(paper_trades)").fetchall()}
         for col, ddl in [
             ("strategy", "TEXT"),
             ("confidence", "TEXT"),
             ("triggered_signals", "TEXT"),
-            ("regime_at_entry", "TEXT"),  # Market regime when trade was opened
+            ("regime_at_entry", "TEXT"),
+            ("signal_fingerprint", "TEXT"),
+            ("fii_flow_at_entry", "TEXT"),
+            ("volatility_at_entry", "REAL"),
         ]:
-            if col not in existing:
+            if col not in existing_paper:
                 try:
                     conn.execute(f"ALTER TABLE paper_trades ADD COLUMN {col} {ddl}")
+                except Exception:
+                    pass
+
+        # Migrate shadow_trades
+        existing_shadow = {row["name"] for row in conn.execute("PRAGMA table_info(shadow_trades)").fetchall()}
+        for col, ddl in [
+            ("signal_fingerprint", "TEXT"),
+            ("fii_flow_at_entry", "TEXT"),
+            ("volatility_at_entry", "REAL"),
+        ]:
+            if col not in existing_shadow:
+                try:
+                    conn.execute(f"ALTER TABLE shadow_trades ADD COLUMN {col} {ddl}")
                 except Exception:
                     pass
 

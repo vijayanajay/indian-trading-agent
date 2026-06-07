@@ -9,6 +9,31 @@ import { Loader2, TrendingUp, TrendingDown, Sparkles, RefreshCw, ArrowRight, Bel
 import Link from "next/link";
 import { toast } from "sonner";
 
+function HonestAssessmentBadge({ assessment }: { assessment: any }) {
+  if (!assessment) return null;
+  const { tier, display_message } = assessment;
+  let bg = "bg-gray-50 border-gray-200 text-gray-700";
+  if (tier === "EXPLORATORY") {
+    bg = "bg-amber-50 border-amber-200 text-amber-700";
+  } else if (tier === "EMERGING") {
+    bg = "bg-blue-50 border-blue-200 text-blue-700";
+  } else if (tier === "EMPIRICAL") {
+    bg = "bg-indigo-50 border-indigo-200 text-indigo-700";
+  } else if (tier === "CALIBRATED") {
+    bg = "bg-green-100 border-green-300 text-green-800 font-semibold";
+  }
+
+  return (
+    <Badge variant="outline" className={`border ${bg} text-[10px] sm:text-xs py-0.5 px-2 flex items-center gap-1`}>
+      {tier === "EXPLORATORY" && "⚠️"}
+      {tier === "EMERGING" && "📊"}
+      {tier === "EMPIRICAL" && "📈"}
+      {tier === "CALIBRATED" && "🎯"}
+      {display_message}
+    </Badge>
+  );
+}
+
 export function TodayPicks({ universe = "nifty100" }: { universe?: string }) {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<any>(null);
@@ -131,9 +156,7 @@ export function TodayPicks({ universe = "nifty100" }: { universe?: string }) {
                       <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300 text-xs">
                         {pick.direction}
                       </Badge>
-                      <Badge variant="outline" className="text-xs">
-                        {pick.success_probability}% chance
-                      </Badge>
+                      <HonestAssessmentBadge assessment={pick.honest_assessment} />
                     </div>
                     <p className="text-xs text-muted-foreground truncate">
                       {pick.bullish_signal_count} signals · RSI {pick.rsi || "—"}
@@ -154,7 +177,7 @@ export function TodayPicks({ universe = "nifty100" }: { universe?: string }) {
                           signal: pick.direction,
                           score: pick.score,
                           confidence: pick.confidence,
-                          success_probability: pick.success_probability,
+                          success_probability: pick.honest_assessment?.probability ?? pick.success_probability,
                           triggered_signals: pick.signals,
                         } as any);
                         toast.success(`${pick.ticker} tracked at Rs.${pick.price}`, {
