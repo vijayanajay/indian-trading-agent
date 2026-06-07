@@ -10,6 +10,8 @@ Tiers:
 import math
 import json
 import hashlib
+import re
+from datetime import datetime
 from typing import Optional
 from backend.db import get_db, get_setting
 
@@ -31,6 +33,109 @@ def wilson_confidence_interval(wins: int, n: int, z: float = 1.28) -> tuple[floa
     center = p + z * z / (2 * n)
     margin = z * math.sqrt((p * (1 - p) + z * z / (4 * n)) / n)
     return max(0.0, (center - margin) / denom), min(1.0, (center + margin) / denom)
+
+
+def get_portfolio_drawdown() -> float:
+    """Reconstruct the paper trading portfolio equity curve and compute current drawdown from peak."""
+    try:
+        with get_db() as conn:
+            rows = conn.execute(
+                """SELECT entry_datetime, entry_date, status, notes, 
+                          pnl_1d_pct, pnl_3d_pct, pnl_5d_pct, pnl_10d_pct, updated_at 
+                   FROM paper_trades"""
+            ).fetchall()
+        if not rows:
+            return 0.0
+        
+        trades = []
+        for r in rows:
+            entry_str = r["entry_datetime"] or r["entry_date"]
+            if not entry_str:
+                continue
+            # Parse entry datetime
+            try:
+                entry_dt = datetime.strptime(entry_str, "%Y-%m-%d %H:%M:%S")
+            except Exception:
+                try:
+                    entry_dt = datetime.strptime(entry_str[:10], "%Y-%m-%d")
+                except Exception:
+                    entry_dt = datetime.min
+            
+            status = r["status"]
+            
+            # Determine P&L
+            pnl = None
+            if status == "manually_closed" and r["notes"]:
+                match = re.search(r"P&L:\s*([\-\d\.]+)%", r["notes"])
+                if match:
+                    try:
+                        pnl = float(match.group(1))
+                    except ValueError:
+                        pass
+            if pnl is None:
+                for k in ["pnl_10d_pct", "pnl_5d_pct", "pnl_3d_pct", "pnl_1d_pct"]:
+                    if r[k] is not None:
+                        pnl = float(r[k])
+                        break
+            if pnl is None:
+                pnl = 0.0
+                
+            # Determine exit datetime
+            exit_dt = None
+            if status in ("expired", "manually_closed") and r["updated_at"]:
+                try:
+                    exit_dt = datetime.strptime(r["updated_at"], "%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    try:
+                        exit_dt = datetime.strptime(r["updated_at"][:10], "%Y-%m-%d")
+                    except Exception:
+                        pass
+            if exit_dt is None:
+                exit_dt = datetime.now()
+                
+            trades.append({
+                "entry": entry_dt,
+                "exit": exit_dt,
+                "pnl": pnl
+            })
+            
+        # Sort events chronologically. Exit events before entry events at the same timestamp.
+        events = []
+        for i, t in enumerate(trades):
+            events.append((t["entry"], "entry", i))
+            events.append((t["exit"], "exit", i))
+            
+        events.sort(key=lambda x: (x[0], 0 if x[1] == "exit" else 1))
+        
+        equity = 100000.0
+        cash = equity
+        peak_equity = equity
+        
+        open_positions = {}
+        for evt_time, evt_type, idx in events:
+            if evt_type == "entry":
+                current_equity = cash + sum(open_positions.values())
+                alloc = current_equity * 0.10
+                cash -= alloc
+                open_positions[idx] = alloc
+            elif evt_type == "exit":
+                if idx in open_positions:
+                    alloc = open_positions.pop(idx)
+                    pnl_pct = trades[idx]["pnl"]
+                    returned = alloc * (1.0 + pnl_pct / 100.0)
+                    cash += returned
+                    
+            current_equity = cash + sum(open_positions.values())
+            if current_equity > peak_equity:
+                peak_equity = current_equity
+                
+        current_equity = cash + sum(open_positions.values())
+        if peak_equity <= 0:
+            return 0.0
+        drawdown = (peak_equity - current_equity) / peak_equity * 100.0
+        return max(0.0, drawdown)
+    except Exception:
+        return 0.0
 
 
 def get_honest_assessment(signals: list[dict], score: float, regime: str | None) -> dict:
@@ -111,6 +216,7 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None)
     probability = None
     brier_score = None
     kelly_pct = None
+    low_confidence = False
 
     if n_trades < 10:
         # Tier 1: EXPLORATORY
@@ -152,12 +258,64 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None)
                     probability = round(p * 100, 0)
                     brier_score = round(br, 2)
                     
-                    # Kelly sizing: 2p - 1
-                    k_frac = 2.0 * p - 1.0
-                    kelly_pct = max(0.0, round(k_frac * 100, 1))
-                    suggested_size = max(1.0, kelly_pct)  # min 1% size if trade is taken
+                    # Query average positive and absolute average negative returns
+                    avg_win = 0.0
+                    avg_loss = 0.0
+                    low_confidence = True
+                    try:
+                        with get_db() as conn:
+                            pnl_row = conn.execute(
+                                """
+                                SELECT 
+                                    AVG(CASE WHEN pnl_5d_pct > 0 THEN pnl_5d_pct END) as avg_win,
+                                    AVG(CASE WHEN pnl_5d_pct < 0 THEN pnl_5d_pct END) as avg_loss
+                                FROM (
+                                    SELECT pnl_5d_pct, signal_fingerprint FROM paper_trades WHERE pnl_5d_pct IS NOT NULL
+                                    UNION ALL
+                                    SELECT pnl_5d_pct, signal_fingerprint FROM shadow_trades WHERE pnl_5d_pct IS NOT NULL
+                                )
+                                WHERE signal_fingerprint = ?
+                                """,
+                                (fingerprint,),
+                            ).fetchone()
+                            if pnl_row:
+                                avg_win = pnl_row["avg_win"] if pnl_row["avg_win"] is not None else 0.0
+                                avg_loss = pnl_row["avg_loss"] if pnl_row["avg_loss"] is not None else 0.0
+                                if avg_win > 0.0 and avg_loss < 0.0:
+                                    low_confidence = False
+                    except Exception:
+                        pass
+
+                    b = 1.0
+                    if not low_confidence:
+                        b = avg_win / abs(avg_loss)
+                    
+                    # Full Kelly formula
+                    q = 1.0 - p
+                    k_frac = (p * b - q) / b
+                    
+                    if k_frac < 0.0:
+                        kelly_pct = 0.0
+                        suggested_size = 0.0
+                        message = "DO NOT TRADE"
+                    else:
+                        kelly_pct = round(k_frac * 100, 1)
+                        if kelly_pct > 15.0:
+                            kelly_pct = 15.0
+                        
+                        suggested_size = max(1.0, kelly_pct)
+                        
+                        # Check portfolio drawdown ceiling
+                        drawdown = get_portfolio_drawdown()
+                        if drawdown > 10.0:
+                            kelly_pct = 0.0
+                            suggested_size = 0.0
+                            message = f"DO NOT TRADE (portfolio drawdown > 10%)"
+                        else:
+                            confidence_str = " (low confidence)" if low_confidence else ""
+                            message = f"Model: {probability:.0f}% probability — Brier: {br:.2f} — Kelly: {kelly_pct:.1f}%{confidence_str}"
+                    
                     tier = "CALIBRATED"
-                    message = f"Model: {probability:.0f}% probability — Brier: {br:.2f} — Kelly: {kelly_pct:.1f}%"
             except Exception:
                 pass
 
@@ -183,4 +341,5 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None)
         "wilson_ci": (round(wilson_lower, 3), round(wilson_upper, 3)) if n_trades > 0 else None,
         "kelly_pct": kelly_pct,
         "fingerprint": fingerprint,
+        "low_confidence": low_confidence,
     }

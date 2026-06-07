@@ -263,3 +263,135 @@ def test_fingerprint_insertion_and_migration():
     assert assessment["tier"] == "EMERGING"
     assert assessment["suggested_position_size_pct"] == 7.5
 
+
+def test_kelly_criterion_replacement():
+    """Verify payoff ratio calculation, caps, drawdown limits, and negative overrides."""
+    signals = [{"type": "Breakout (Volume Confirmed)"}, {"type": "Strong Uptrend"}]
+    score = 4.5
+    regime = "BULL"
+    fp = compute_fingerprint([s["type"] for s in signals], regime)
+    
+    # 1. Setup a valid calibrated model in settings
+    set_setting("calibration_model_beta_0", "-1.5")
+    set_setting("calibration_model_beta_1", "0.5")
+    set_setting("calibration_model_brier", "0.15")
+    
+    # Update cache to indicate CALIBRATED tier (n >= 100)
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO signal_performance_cache (fingerprint, n_trades, wins, win_rate, wilson_lower, wilson_upper, avg_pnl)
+               VALUES (?, 120, 80, 0.66, 0.60, 0.72, 1.5)""",
+            (fp,),
+        )
+        
+    # Clear paper_trades and shadow_trades first
+    with get_db() as conn:
+        conn.execute("DELETE FROM paper_trades")
+        conn.execute("DELETE FROM shadow_trades")
+        
+    # Test 1.1: Default payoff ratio b = 1.0 (no trades in DB yet)
+    assessment = get_honest_assessment(signals, score, regime)
+    assert assessment["tier"] == "CALIBRATED"
+    assert assessment["low_confidence"] is True
+    # logit = -1.5 + 0.5 * 4.5 = 0.75 => p = 0.679. b = 1.0. k_frac = 0.679 - 0.321 = 0.358 => 35.8% capped at 15%
+    assert assessment["kelly_pct"] == 15.0
+    assert "(low confidence)" in assessment["display_message"]
+    
+    # Test 1.2: Insert trades with average win 4.0% and average loss -2.0%
+    # b = 4.0 / 2.0 = 2.0.
+    # logit = 0.75 => p = 0.679. q = 0.321.
+    # k_frac = (p*b - q)/b = (0.679 * 2.0 - 0.321) / 2.0 = (1.358 - 0.321)/2.0 = 1.037/2.0 = 0.5185 => 51.9% capped at 15.0%
+    with get_db() as conn:
+        # 1 win and 1 loss
+        conn.execute(
+            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, regime_at_entry, pnl_5d_pct, signal_fingerprint)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            ("T1", 100.0, "[]", "BULL", 4.0, fp)
+        )
+        conn.execute(
+            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, regime_at_entry, pnl_5d_pct, signal_fingerprint)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            ("T2", 100.0, "[]", "BULL", -2.0, fp)
+        )
+        
+    assessment = get_honest_assessment(signals, score, regime)
+    assert assessment["low_confidence"] is False
+    assert assessment["kelly_pct"] == 15.0
+    assert "(low confidence)" not in assessment["display_message"]
+    
+    # Test 1.3: Capping check with lower p to see actual uncapped Kelly sizing.
+    # score = 2.0 => logit = -1.5 + 1.0 = -0.5 => p = 1/(1 + e^0.5) = 0.3775 => q = 0.6225
+    # Since win rate p = 37.75% and b = 2.0, edge is positive: p*b - q = 0.3775*2 - 0.6225 = 0.755 - 0.6225 = 0.1325
+    # k_frac = 0.1325 / 2 = 0.06625 => kelly_pct = 6.6%
+    assessment = get_honest_assessment(signals, 2.0, regime)
+    assert assessment["kelly_pct"] == 6.6
+    assert assessment["suggested_position_size_pct"] == 6.6
+    
+    # Test 1.4: Negative Kelly override.
+    # score = 1.0 => logit = -1.5 + 0.5 = -1.0 => p = 1/(1+e) = 0.2689 => q = 0.7311
+    # p*b - q = 0.2689 * 2 - 0.7311 = 0.5378 - 0.7311 < 0 (negative edge)
+    # Kelly should be overridden to DO NOT TRADE / 0%
+    assessment = get_honest_assessment(signals, 1.0, regime)
+    assert assessment["kelly_pct"] == 0.0
+    assert assessment["suggested_position_size_pct"] == 0.0
+    assert assessment["display_message"] == "DO NOT TRADE"
+
+    # Test 1.5: Drawdown override.
+    # We simulate a portfolio down more than 10% from its peak equity.
+    # T1 alloc = 10,000. PnL -90% => returned 1,000. Equity = 91,000. Drawdown = 9% from peak 100,000.
+    # T2 alloc = 9,100. PnL -50% => returned 4,550. Equity = 81,900 + 4,550 = 86,450. Drawdown = 13.55%.
+    with get_db() as conn:
+        conn.execute("DELETE FROM paper_trades")
+        conn.execute(
+            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_datetime, status, pnl_5d_pct, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            ("DT1", 100.0, "[]", "2026-06-01 10:00:00", "expired", -90.0, "2026-06-02 10:00:00")
+        )
+        conn.execute(
+            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_datetime, status, pnl_5d_pct, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            ("DT2", 100.0, "[]", "2026-06-03 10:00:00", "expired", -50.0, "2026-06-04 10:00:00")
+        )
+        
+    assessment = get_honest_assessment(signals, 4.5, regime)
+    assert assessment["kelly_pct"] == 0.0
+    assert assessment["suggested_position_size_pct"] == 0.0
+    assert "DO NOT TRADE (portfolio drawdown > 10%)" in assessment["display_message"]
+
+
+def test_get_portfolio_drawdown_calculation():
+    """Directly test get_portfolio_drawdown with different trade outcomes and timing."""
+    from backend.honest_assessment import get_portfolio_drawdown
+
+    with get_db() as conn:
+        conn.execute("DELETE FROM paper_trades")
+
+    # Scenario 1: Empty database should return 0.0 drawdown
+    assert get_portfolio_drawdown() == 0.0
+
+    # Scenario 2: Single win (equity rises, no drawdown)
+    # T1 alloc = 10% of 100k = 10k. Returns +20% => returns 12k. Equity = 102k. Drawdown = 0.0.
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_datetime, status, pnl_5d_pct, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            ("WT1", 100.0, "[]", "2026-06-01 10:00:00", "expired", 20.0, "2026-06-02 10:00:00")
+        )
+    assert get_portfolio_drawdown() == 0.0
+
+    # Scenario 3: Add a loss that causes drawdown from the new peak
+    # Equity is 102k (peak).
+    # T2 alloc = 10% of 102k = 10.2k. Returns -50% => returns 5.1k.
+    # Total equity = 91.8k cash + 5.1k returned = 96.9k.
+    # Drawdown from peak (102k) is (102 - 96.9) / 102 * 100 = 5.0%.
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_datetime, status, pnl_5d_pct, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            ("WT2", 100.0, "[]", "2026-06-03 10:00:00", "expired", -50.0, "2026-06-04 10:00:00")
+        )
+    dd = get_portfolio_drawdown()
+    assert abs(dd - 5.0) < 0.01
+
+
+

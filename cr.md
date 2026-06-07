@@ -11,3 +11,8 @@
 - Implemented database startup migration calling `_migrate_paper_trades_columns` during `ensure_db` to avoid sqlite column errors.
 - Created `backfill_fingerprints.py` migration script to compute and backfill fingerprints for historical paper/shadow trades.
 - Added test coverage verifying fingerprint generation, migration, and fallback query logic on cache misses.
+- Replaced the simplified Kelly Criterion (`2p - 1`) with the full Kelly formula `(p*b - q) / b` in the CALIBRATED tier.
+- Integrated dynamic portfolio drawdown calculation (`get_portfolio_drawdown()`) by simulating compounding equity across historical paper trades.
+- Implemented position sizing safety caps (15% limit), portfolio drawdown ceilings (>10% override to 0%), and negative Kelly fraction overrides ("DO NOT TRADE").
+- Added comprehensive unit tests for Kelly Criterion calculations, defaults, overrides, and drawdown calculation.
+
