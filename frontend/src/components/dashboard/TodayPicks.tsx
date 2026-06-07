@@ -177,7 +177,7 @@ export function TodayPicks({ universe = "nifty100" }: { universe?: string }) {
                           signal: pick.direction,
                           score: pick.score,
                           confidence: pick.confidence,
-                          success_probability: pick.honest_assessment?.probability ?? pick.success_probability,
+                          success_probability: pick.honest_assessment?.probability,
                           triggered_signals: pick.signals,
                         } as any);
                         toast.success(`${pick.ticker} tracked at Rs.${pick.price}`, {

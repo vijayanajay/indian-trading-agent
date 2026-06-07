@@ -211,7 +211,7 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None)
     
     # Defaults
     tier = "EXPLORATORY"
-    message = "Insufficient data — Paper trade only, 50% size"
+    message = "Paper trade only — no probability estimate"
     suggested_size = 5.0
     probability = None
     brier_score = None
@@ -221,22 +221,20 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None)
     if n_trades < 10:
         # Tier 1: EXPLORATORY
         tier = "EXPLORATORY"
-        message = "Insufficient data — Paper trade only, 50% size"
+        message = "Paper trade only — no probability estimate"
         suggested_size = 5.0
     elif n_trades < 30:
         # Tier 2: EMERGING
         tier = "EMERGING"
-        message = "Building track record — 75% size, track carefully"
+        message = "Building track record — no probability estimate"
         suggested_size = 7.5
     elif n_trades < 100:
         # Tier 3: EMPIRICAL
         tier = "EMPIRICAL"
-        edge_label = "NONE"
-        if wilson_lower > 0.50:
-            edge_label = "STRONG"
-        elif win_rate > 0.50:
-            edge_label = "MARGINAL"
-        message = f"Historical: {win_rate:.0%} win rate ({wilson_lower:.0%}-{wilson_upper:.0%} CI) — Edge: {edge_label}"
+        win_rate_pct = round(win_rate * 100)
+        wilson_lower_pct = round(wilson_lower * 100)
+        wilson_upper_pct = round(wilson_upper * 100)
+        message = f"Historical win rate: {win_rate_pct}% ({wilson_lower_pct}%-{wilson_upper_pct}% confidence)"
         suggested_size = 10.0
     else:
         # Tier 4: CALIBRATED (check if model is available)
@@ -247,8 +245,8 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None)
         has_calibrated_model = False
         if coefs and cv_auc is not None and cv_brier is not None:
             try:
-                # AUC > 0.55 and Brier < 0.25 safety check
-                if cv_auc > 0.55 and cv_brier < 0.25:
+                # AUC > 0.55 and Brier < 0.20 safety check
+                if cv_auc > 0.55 and cv_brier < 0.20:
                     p = predict_win_probability(fingerprint, regime, signals=signals)
                     if p is not None:
                         has_calibrated_model = True
@@ -284,48 +282,48 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None)
                     except Exception:
                         pass
 
-                    b = 1.0
-                    if not low_confidence:
-                        b = avg_win / abs(avg_loss)
-                    
-                    # Full Kelly formula
-                    q = 1.0 - p
-                    k_frac = (p * b - q) / b
-                    
-                    if k_frac < 0.0:
-                        kelly_pct = 0.0
-                        suggested_size = 0.0
-                        message = "DO NOT TRADE"
-                    else:
-                        kelly_pct = round(k_frac * 100, 1)
-                        if kelly_pct > 15.0:
-                            kelly_pct = 15.0
+                    if has_calibrated_model:
+                        b = 1.0
+                        if not low_confidence:
+                            b = avg_win / abs(avg_loss)
                         
-                        suggested_size = max(1.0, kelly_pct)
+                        # Full Kelly formula
+                        q = 1.0 - p
+                        k_frac = (p * b - q) / b
                         
-                        # Check portfolio drawdown ceiling
-                        drawdown = get_portfolio_drawdown()
-                        if drawdown > 10.0:
+                        if k_frac < 0.0:
                             kelly_pct = 0.0
                             suggested_size = 0.0
-                            message = f"DO NOT TRADE (portfolio drawdown > 10%)"
+                            message = "DO NOT TRADE"
                         else:
-                            confidence_str = " (low confidence)" if low_confidence else ""
-                            message = f"Model: {probability:.0f}% probability — Brier: {br:.2f} — Kelly: {kelly_pct:.1f}%{confidence_str}"
-                    
-                    tier = "CALIBRATED"
+                            kelly_pct = round(k_frac * 100, 1)
+                            if kelly_pct > 15.0:
+                                kelly_pct = 15.0
+                            
+                            suggested_size = max(1.0, kelly_pct)
+                            
+                            # Check portfolio drawdown ceiling
+                            drawdown = get_portfolio_drawdown()
+                            if drawdown > 10.0:
+                                kelly_pct = 0.0
+                                suggested_size = 0.0
+                                message = f"DO NOT TRADE (portfolio drawdown > 10%)"
+                            else:
+                                confidence_str = " (low confidence)" if low_confidence else ""
+                                message = f"Model: {probability:.0f}% probability — Brier: {br:.2f} — Kelly: {kelly_pct:.1f}%{confidence_str}"
+                        
+                        tier = "CALIBRATED"
             except Exception:
                 pass
 
         if not has_calibrated_model:
             # Fall back to Tier 3 if calibration is unavailable or failed Brier safety check
             tier = "EMPIRICAL"
-            edge_label = "NONE"
-            if wilson_lower > 0.50:
-                edge_label = "STRONG"
-            elif win_rate > 0.50:
-                edge_label = "MARGINAL"
-            message = f"Historical: {win_rate:.0%} win rate ({wilson_lower:.0%}-{wilson_upper:.0%} CI) — Edge: {edge_label}"
+            probability = None
+            win_rate_pct = round(win_rate * 100) if n_trades > 0 else 0
+            wilson_lower_pct = round(wilson_lower * 100) if n_trades > 0 else 0
+            wilson_upper_pct = round(wilson_upper * 100) if n_trades > 0 else 0
+            message = f"Historical win rate: {win_rate_pct}% ({wilson_lower_pct}%-{wilson_upper_pct}% confidence)"
             suggested_size = 10.0
 
     return {

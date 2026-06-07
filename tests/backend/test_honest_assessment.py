@@ -102,6 +102,7 @@ def test_honest_assessment_tiers():
     assert assessment["tier"] == "EXPLORATORY"
     assert assessment["suggested_position_size_pct"] == 5.0
     assert assessment["probability"] is None
+    assert assessment["display_message"] == "Paper trade only — no probability estimate"
     
     # Mock database connection to return custom counts for cache/dynamic lookups
     fingerprint = assessment["fingerprint"]
@@ -119,6 +120,7 @@ def test_honest_assessment_tiers():
     assert assessment["tier"] == "EMERGING"
     assert assessment["suggested_position_size_pct"] == 7.5
     assert assessment["probability"] is None
+    assert assessment["display_message"] == "Building track record — no probability estimate"
 
     # Update cache to Empirical boundaries
     with get_db() as conn:
@@ -132,7 +134,7 @@ def test_honest_assessment_tiers():
     assert assessment["tier"] == "EMPIRICAL"
     assert assessment["suggested_position_size_pct"] == 10.0
     assert assessment["probability"] is None
-    assert "Historical: 70% win rate" in assessment["display_message"]
+    assert assessment["display_message"] == "Historical win rate: 70% (61%-78% confidence)"
     
     # Update cache to Calibrated boundaries
     with get_db() as conn:
@@ -155,7 +157,7 @@ def test_honest_assessment_tiers():
         import backend.signal_model
         backend.signal_model._MODEL_CACHE = None
     
-    # Tier 4: Calibrated (n >= 100 + calibrated model + Brier < 0.25)
+    # Tier 4: Calibrated (n >= 100 + calibrated model + Brier < 0.20)
     assessment = get_honest_assessment(signals, score, regime)
     assert assessment["tier"] == "CALIBRATED"
     assert assessment["probability"] is not None
@@ -163,9 +165,9 @@ def test_honest_assessment_tiers():
     assert assessment["suggested_position_size_pct"] == assessment["kelly_pct"]
     assert "Model:" in assessment["display_message"]
     
-    # Check fallback when Brier is too high (Brier = 0.26 >= 0.25)
+    # Check fallback when Brier is too high (Brier = 0.21 >= 0.20)
     with get_db() as conn:
-        conn.execute("UPDATE model_coefficients SET brier = 0.26")
+        conn.execute("UPDATE model_coefficients SET brier = 0.21")
         backend.signal_model._MODEL_CACHE = None
     assessment = get_honest_assessment(signals, score, regime)
     assert assessment["tier"] == "EMPIRICAL"  # Bypassed model due to Brier safety check

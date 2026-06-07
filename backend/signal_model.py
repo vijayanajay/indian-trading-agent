@@ -221,7 +221,7 @@ def predict_win_probability(fingerprint: str, regime: str | None, signals: list 
     coefs, auc, brier = get_cached_coefficients()
     if not coefs or auc is None or brier is None:
         return None
-    if auc <= 0.55 or brier >= 0.25:
+    if auc <= 0.55 or brier >= 0.20:
         return None
 
     if signals is None:
@@ -363,8 +363,8 @@ def train_signal_model() -> dict:
     logger.info(f"Cross-Validation results: AUC={cv_auc:.4f}, Brier={cv_brier:.4f}")
 
     # 3. Validation Check
-    if cv_auc <= 0.55 or cv_brier >= 0.25:
-        msg = f"Model failed validation checks: CV AUC {cv_auc:.3f} <= 0.55 or Brier {cv_brier:.3f} >= 0.25. Keeping previous model."
+    if cv_auc <= 0.55 or cv_brier >= 0.20:
+        msg = f"Model failed validation checks: CV AUC {cv_auc:.3f} <= 0.55 or Brier {cv_brier:.3f} >= 0.20. Keeping previous model."
         logger.warning(msg)
         # Update settings count to prevent constant retraining triggers
         set_setting("model_last_trained_trade_count", str(n_samples))

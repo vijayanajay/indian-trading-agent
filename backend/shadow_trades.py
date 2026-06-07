@@ -117,7 +117,7 @@ def record_shadow_trades_from_recommendations(recs: dict) -> dict:
                         pick.get("direction"),
                         pick.get("score"),
                         pick.get("confidence"),
-                        pick.get("success_probability"),
+                        pick.get("honest_assessment", {}).get("probability"),
                         triggered,
                         current_regime,
                         float(entry_price),
@@ -215,6 +215,14 @@ def list_shadow_trades(window_days: int = 90, only_ripe: bool = False) -> list[d
                 d["triggered_signals"] = json.loads(d["triggered_signals"])
             except Exception:
                 pass
+        
+        # Dynamically append honest_assessment
+        from backend.honest_assessment import get_honest_assessment
+        signals = d.get("triggered_signals") or []
+        score = d.get("score") or 0.0
+        regime = d.get("regime_at_entry")
+        d["honest_assessment"] = get_honest_assessment(signals, score, regime)
+        
         out.append(d)
     return out
 

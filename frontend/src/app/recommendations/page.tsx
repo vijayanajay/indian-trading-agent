@@ -39,7 +39,7 @@ const recommendationsHelp = [
   },
   {
     question: "What is the % estimated success?",
-    answer: "A rough probability estimate based on:\n  \u2022 Baseline: 50% (random chance)\n  \u2022 +4% per point of absolute score (up to +30%)\n  \u2022 +2% per aligned signal (up to +15%)\n  \u2022 Max: 85% (never 100% certain)\n\nInterpretation:\n  \u2022 >=70% = high probability setup (rare, take it)\n  \u2022 60-70% = good probability (worth considering)\n  \u2022 50-60% = barely better than coin flip\n\nThis is an estimate based on signal strength, NOT guaranteed. Actual win rates depend on market conditions. Always use Performance page to validate actual historical win rates.",
+    answer: "An honest estimation based on historical data availability for the signal fingerprint:\n\n  \u2022 EXPLORATORY / EMERGING: Paper trade only. Insufficient data to estimate success probability.\n  \u2022 EMPIRICAL: Shows the historical win rate and its Wilson confidence interval (e.g., 52% win rate with 38%-66% confidence) based on actual trades.\n  \u2022 CALIBRATED: Active when we have 100+ trades and the model's Brier score is < 0.20. Shows the calibrated model probability with Kelly sizing.",
   },
   {
     question: "What does \"AI Analyze\" button do?",
@@ -143,7 +143,7 @@ function RecommendationCard({ rec }: { rec: any }) {
                     signal: rec.direction,
                     score: rec.score,
                     confidence: rec.confidence,
-                    success_probability: rec.honest_assessment?.probability ?? rec.success_probability,
+                    success_probability: rec.honest_assessment?.probability,
                     triggered_signals: rec.signals,
                   } as any);
                   toast.success(`${rec.ticker} tracked at Rs.${rec.price}`, {

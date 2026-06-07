@@ -550,6 +550,14 @@ def list_paper_trades(status: str | None = None) -> list[dict]:
                     d["triggered_signals"] = json.loads(d["triggered_signals"])
                 except Exception:
                     pass
+            
+            # Dynamically append honest_assessment
+            from backend.honest_assessment import get_honest_assessment
+            signals = d.get("triggered_signals") or []
+            score = d.get("score") or 0.0
+            regime = d.get("regime_at_entry")
+            d["honest_assessment"] = get_honest_assessment(signals, score, regime)
+            
             result.append(d)
         return result
 

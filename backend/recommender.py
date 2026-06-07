@@ -240,16 +240,13 @@ def _analyze_stock(ticker: str, allowed_strategies: dict = None) -> dict | None:
                 score += _ACTIVE_WEIGHTS["downtrend_strong"]
                 signals.append({"type": "Strong Downtrend", "direction": "BEARISH", "value": "Price < 50 SMA < 200 SMA", "weight": _ACTIVE_WEIGHTS["downtrend_strong"]})
 
-        # === DETERMINE OVERALL RECOMMENDATION ===
-        from backend.signal_model import predict_win_probability
-        from backend.honest_assessment import compute_fingerprint
+        # === DETERMINE OVERALL RECOMMENDATION & ASSESSMENT ===
+        from backend.honest_assessment import get_honest_assessment
+        assessment = get_honest_assessment(signals, score, _ACTIVE_REGIME)
+        prob_win_val = assessment.get("probability")
         
-        signal_types = [s.get("type") for s in signals if isinstance(s, dict) and s.get("type")]
-        fingerprint = compute_fingerprint(signal_types, _ACTIVE_REGIME)
-        prob_win = predict_win_probability(fingerprint, _ACTIVE_REGIME, signals=signals)
-        
-        if prob_win is not None:
-            success_probability = round(prob_win * 100)
+        if prob_win_val is not None:
+            prob_win = prob_win_val / 100.0
             if prob_win >= 0.65:
                 direction = "STRONG BUY"
             elif prob_win >= 0.55:
@@ -280,12 +277,6 @@ def _analyze_stock(ticker: str, allowed_strategies: dict = None) -> dict | None:
         aligned_count = max(len(bullish_signals), len(bearish_signals))
         confidence = "HIGH" if aligned_count >= 4 else ("MEDIUM" if aligned_count >= 2 else "LOW")
 
-        # Calculate estimated probability of success based on score + alignment using HonestAssessmentEngine
-        from backend.honest_assessment import get_honest_assessment
-        assessment = get_honest_assessment(signals, score, _ACTIVE_REGIME)
-        if prob_win is None:
-            success_probability = assessment.get("probability") or 50
-
         price_change_day = (current_close - prev_close) / prev_close * 100
 
         return {
@@ -297,7 +288,6 @@ def _analyze_stock(ticker: str, allowed_strategies: dict = None) -> dict | None:
             "score": round(score, 2),
             "direction": direction,
             "confidence": confidence,
-            "success_probability": int(success_probability),
             "honest_assessment": assessment,
             "signals": signals,
             "bullish_signal_count": len(bullish_signals),
@@ -330,16 +320,13 @@ def _apply_market_bias(result: dict, bias: dict) -> dict:
     elif adj < 0:
         result["bearish_signal_count"] = result.get("bearish_signal_count", 0) + 1
 
-    from backend.signal_model import predict_win_probability
-    from backend.honest_assessment import compute_fingerprint
-    signal_types = [s.get("type") for s in result["signals"] if isinstance(s, dict) and s.get("type")]
-    fingerprint = compute_fingerprint(signal_types, _ACTIVE_REGIME)
-    prob_win = predict_win_probability(fingerprint, _ACTIVE_REGIME, signals=result["signals"])
+    # Re-compute honest assessment with new score
+    from backend.honest_assessment import get_honest_assessment
+    assessment = get_honest_assessment(result.get("signals", []), new_score, _ACTIVE_REGIME)
+    prob_win_val = assessment.get("probability")
 
-    if prob_win is not None:
-        # Apply score adjustment to probability (0.05 per point)
-        prob_win = max(0.01, min(0.99, prob_win + adj * 0.05))
-        success_probability = round(prob_win * 100)
+    if prob_win_val is not None:
+        prob_win = prob_win_val / 100.0
         if prob_win >= 0.65:
             direction = "STRONG BUY"
         elif prob_win >= 0.55:
@@ -363,15 +350,8 @@ def _apply_market_bias(result: dict, bias: dict) -> dict:
         else:
             direction = "NEUTRAL"
 
-    # Re-compute success probability and honest assessment with new score
-    from backend.honest_assessment import get_honest_assessment
-    assessment = get_honest_assessment(result.get("signals", []), new_score, _ACTIVE_REGIME)
-    if prob_win is None:
-        success_probability = assessment.get("probability") or 50
-
     result["score"] = new_score
     result["direction"] = direction
-    result["success_probability"] = int(success_probability)
     result["honest_assessment"] = assessment
     result["market_bias_applied"] = bias["bias"]
 
@@ -404,16 +384,13 @@ def _apply_concentration_filter(result: dict, concentration_check: dict) -> dict
     result["concentration_warning"] = "; ".join(warnings) if warnings else None
     result["concentration_breach"] = concentration_check.get("would_breach", False)
 
-    from backend.signal_model import predict_win_probability
-    from backend.honest_assessment import compute_fingerprint
-    signal_types = [s.get("type") for s in result["signals"] if isinstance(s, dict) and s.get("type")]
-    fingerprint = compute_fingerprint(signal_types, _ACTIVE_REGIME)
-    prob_win = predict_win_probability(fingerprint, _ACTIVE_REGIME, signals=result["signals"])
+    # Re-compute honest assessment with new score
+    from backend.honest_assessment import get_honest_assessment
+    assessment = get_honest_assessment(result.get("signals", []), new_score, _ACTIVE_REGIME)
+    prob_win_val = assessment.get("probability")
 
-    if prob_win is not None:
-        # Apply score adjustment to probability (0.05 per point)
-        prob_win = max(0.01, min(0.99, prob_win + adj * 0.05))
-        success_probability = round(prob_win * 100)
+    if prob_win_val is not None:
+        prob_win = prob_win_val / 100.0
         if prob_win >= 0.65:
             direction = "STRONG BUY"
         elif prob_win >= 0.55:
@@ -437,15 +414,8 @@ def _apply_concentration_filter(result: dict, concentration_check: dict) -> dict
         else:
             direction = "NEUTRAL"
 
-    # Re-compute success probability and honest assessment with new score
-    from backend.honest_assessment import get_honest_assessment
-    assessment = get_honest_assessment(result.get("signals", []), new_score, _ACTIVE_REGIME)
-    if prob_win is None:
-        success_probability = assessment.get("probability") or 50
-
     result["score"] = new_score
     result["direction"] = direction
-    result["success_probability"] = int(success_probability)
     result["honest_assessment"] = assessment
 
     return result
@@ -475,16 +445,13 @@ def _apply_event_filter(result: dict, event_filter: dict) -> dict:
     result["event_warning"] = warning
     result["upcoming_events"] = event_filter.get("events", [])
 
-    from backend.signal_model import predict_win_probability
-    from backend.honest_assessment import compute_fingerprint
-    signal_types = [s.get("type") for s in result["signals"] if isinstance(s, dict) and s.get("type")]
-    fingerprint = compute_fingerprint(signal_types, _ACTIVE_REGIME)
-    prob_win = predict_win_probability(fingerprint, _ACTIVE_REGIME, signals=result["signals"])
+    # Re-compute honest assessment with new score
+    from backend.honest_assessment import get_honest_assessment
+    assessment = get_honest_assessment(result.get("signals", []), new_score, _ACTIVE_REGIME)
+    prob_win_val = assessment.get("probability")
 
-    if prob_win is not None:
-        # Apply score adjustment to probability (0.05 per point)
-        prob_win = max(0.01, min(0.99, prob_win + adj * 0.05))
-        success_probability = round(prob_win * 100)
+    if prob_win_val is not None:
+        prob_win = prob_win_val / 100.0
         if prob_win >= 0.65:
             direction = "STRONG BUY"
         elif prob_win >= 0.55:
@@ -508,15 +475,8 @@ def _apply_event_filter(result: dict, event_filter: dict) -> dict:
         else:
             direction = "NEUTRAL"
 
-    # Re-compute success probability and honest assessment with new score
-    from backend.honest_assessment import get_honest_assessment
-    assessment = get_honest_assessment(result.get("signals", []), new_score, _ACTIVE_REGIME)
-    if prob_win is None:
-        success_probability = assessment.get("probability") or 50
-
     result["score"] = new_score
     result["direction"] = direction
-    result["success_probability"] = int(success_probability)
     result["honest_assessment"] = assessment
 
     return result

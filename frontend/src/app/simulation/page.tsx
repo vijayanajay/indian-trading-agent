@@ -77,6 +77,31 @@ const sourceConfig: Record<string, { label: string; icon: any; color: string }> 
   test: { label: "Test", icon: Target, color: "bg-blue-50 text-blue-700 border-blue-200" },
 };
 
+function HonestAssessmentBadge({ assessment }: { assessment: any }) {
+  if (!assessment) return null;
+  const { tier } = assessment;
+  let bg = "bg-gray-50 border-gray-200 text-gray-700";
+  if (tier === "EXPLORATORY") {
+    bg = "bg-amber-50 border-amber-200 text-amber-700";
+  } else if (tier === "EMERGING") {
+    bg = "bg-blue-50 border-blue-200 text-blue-700";
+  } else if (tier === "EMPIRICAL") {
+    bg = "bg-indigo-50 border-indigo-200 text-indigo-700";
+  } else if (tier === "CALIBRATED") {
+    bg = "bg-green-100 border-green-300 text-green-800 font-semibold";
+  }
+
+  return (
+    <Badge variant="outline" className={`border ${bg} text-[10px] py-0.5 px-2 flex items-center gap-1 w-fit`}>
+      {tier === "EXPLORATORY" && "⚠️"}
+      {tier === "EMERGING" && "📊"}
+      {tier === "EMPIRICAL" && "📈"}
+      {tier === "CALIBRATED" && "🎯"}
+      {tier}
+    </Badge>
+  );
+}
+
 function PnLCell({ value }: { value: number | null | undefined }) {
   if (value == null) return <span className="text-muted-foreground text-xs">—</span>;
   const color = value > 0 ? "text-green-600" : value < 0 ? "text-red-600" : "text-muted-foreground";
@@ -104,7 +129,14 @@ function PaperTradeRow({ t, onClose, onDelete }: { t: any; onClose: (id: number)
           )}
         </TableCell>
         <TableCell className="text-xs">{t.entry_date}</TableCell>
-        <TableCell className="font-medium">{t.ticker}</TableCell>
+        <TableCell>
+          <div className="flex flex-col gap-1 items-start">
+            <span className="font-semibold text-sm">{t.ticker}</span>
+            {t.honest_assessment && (
+              <HonestAssessmentBadge assessment={t.honest_assessment} />
+            )}
+          </div>
+        </TableCell>
         <TableCell>
           <Badge variant="outline" className={`text-xs ${src.color}`}>
             <SrcIcon className="h-2.5 w-2.5 mr-1" />
@@ -158,8 +190,12 @@ function PaperTradeRow({ t, onClose, onDelete }: { t: any; onClose: (id: number)
                   {t.confidence && (
                     <Badge variant="outline" className="ml-2 text-xs">{t.confidence}</Badge>
                   )}
-                  {t.success_probability != null && (
-                    <span className="ml-3 text-muted-foreground">Est. success: <span className="font-semibold text-foreground">{t.success_probability}%</span></span>
+                  {t.honest_assessment?.tier === "CALIBRATED" && t.honest_assessment.probability != null ? (
+                    <span className="ml-3 text-muted-foreground">Est. success: <span className="font-semibold text-foreground">{t.honest_assessment.probability}%</span></span>
+                  ) : (
+                    t.honest_assessment?.display_message && (
+                      <span className="ml-3 text-muted-foreground">Assessment: <span className="font-semibold text-foreground">{t.honest_assessment.display_message}</span></span>
+                    )
                   )}
                 </div>
               )}

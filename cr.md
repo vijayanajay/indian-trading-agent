@@ -24,5 +24,11 @@
 - Added automatic background retraining daemon checks triggered asynchronously when 20+ new closed trades accumulate.
 - Retired the legacy manual/automatic weight tuning suggestion logic in `signal_performance.py`.
 - Wrote unit test coverage for the new feature vectorization, ISTA optimizer, cross-validation metrics, database persistence, and triggers.
-
-
+- Retired the legacy success probability formula (`50% + 4% per score point + 2% per aligned signal`) from both recommendations and historical backtests.
+- Made `honest_assessment.py` the single source of truth for all success probability calculations, returning `None` (null) for the `EXPLORATORY`, `EMERGING`, and `EMPIRICAL` tiers.
+- Formatted clear display messages for all data quality tiers, including Wilson confidence interval text in `EMPIRICAL` and model metrics in `CALIBRATED`.
+- Tightened the calibrated model validation threshold to `Brier < 0.20` (previously `< 0.25`) in both training and inference.
+- Adapted recommender filter functions (`_apply_market_bias`, `_apply_event_filter`, `_apply_concentration_filter`) to adjust score and direction without direct probability recalculations.
+- Updated Next.js frontend pages (Recommendations, Shadow Trades, Simulation, and Dashboard TodayPicks) to render the `HonestAssessmentBadge` prominently and handle null probabilities gracefully by rendering descriptive display messages.
+- Created and executed a database migration script `backfill_honest_assessments.py` to backfill and update the `success_probability` column for all historical trades in `paper_trades` and `shadow_trades`.
+- Updated unit test coverage in `test_honest_assessment.py` to verify the updated display messages and `0.20` Brier threshold validation.

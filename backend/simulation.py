@@ -399,7 +399,7 @@ def _analyze_stock_at_date(ticker: str, target_date: date) -> dict | None:
             "outcome_1d": ("win" if returns.get("return_1d", 0) > 0 else "loss") if "return_1d" in returns else None,
             "outcome_5d": ("win" if returns.get("return_5d", 0) > 0 else "loss") if "return_5d" in returns else None,
             "confidence": "HIGH" if abs(score) >= 4 else ("MEDIUM" if abs(score) >= 2.5 else "LOW"),
-            "success_probability": min(85, int(50 + abs(score) * 4)),
+            "success_probability": None,
         }
     except Exception:
         return None

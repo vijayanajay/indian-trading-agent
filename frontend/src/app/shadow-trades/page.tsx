@@ -42,6 +42,7 @@ type ShadowTrade = {
   pnl_5d_pct: number | null;
   pnl_10d_pct: number | null;
   user_tracked: number;
+  honest_assessment?: any;
 };
 type ListResp = { window_days: number; count: number; trades: ShadowTrade[] };
 type Stats = { n: number; win_rate_5d: number | null; avg_return_5d_pct: number | null; median_return_5d_pct: number | null };
@@ -90,6 +91,31 @@ const VERDICT_STYLES: Record<string, { color: string; label: string; icon: any }
   filter_neutral: { color: "text-amber-700", label: "Filter NEUTRAL", icon: Sparkles },
   insufficient_data: { color: "text-muted-foreground", label: "Insufficient data", icon: Database },
 };
+
+function HonestAssessmentBadge({ assessment }: { assessment: any }) {
+  if (!assessment) return null;
+  const { tier } = assessment;
+  let bg = "bg-gray-50 border-gray-200 text-gray-700";
+  if (tier === "EXPLORATORY") {
+    bg = "bg-amber-50 border-amber-200 text-amber-700";
+  } else if (tier === "EMERGING") {
+    bg = "bg-blue-50 border-blue-200 text-blue-700";
+  } else if (tier === "EMPIRICAL") {
+    bg = "bg-indigo-50 border-indigo-200 text-indigo-700";
+  } else if (tier === "CALIBRATED") {
+    bg = "bg-green-100 border-green-300 text-green-800 font-semibold";
+  }
+
+  return (
+    <Badge variant="outline" className={`border ${bg} text-[10px] py-0.5 px-2 flex items-center gap-1 w-fit`}>
+      {tier === "EXPLORATORY" && "⚠️"}
+      {tier === "EMERGING" && "📊"}
+      {tier === "EMPIRICAL" && "📈"}
+      {tier === "CALIBRATED" && "🎯"}
+      {tier}
+    </Badge>
+  );
+}
 
 const REGIME_COLORS: Record<string, string> = {
   BULL: "text-green-700 bg-green-50 border-green-200",
@@ -295,7 +321,14 @@ export default function ShadowTradesPage() {
                 {list?.trades.map((t) => (
                   <tr key={`${t.ticker}-${t.signal_date}`} className="border-b hover:bg-muted/30">
                     <td className="px-4 py-2 font-mono text-xs">{t.signal_date}</td>
-                    <td className="px-2 py-2 font-semibold">{t.ticker}</td>
+                    <td className="px-2 py-2">
+                      <div className="flex flex-col gap-1 items-start">
+                        <span className="font-semibold">{t.ticker}</span>
+                        {t.honest_assessment && (
+                          <HonestAssessmentBadge assessment={t.honest_assessment} />
+                        )}
+                      </div>
+                    </td>
                     <td className="px-2 py-2">
                       <Badge variant="outline" className={t.signal === "STRONG BUY" ? "bg-green-100 text-green-800 border-green-300 text-xs" : "bg-blue-50 text-blue-700 border-blue-200 text-xs"}>
                         {t.signal}
@@ -309,7 +342,15 @@ export default function ShadowTradesPage() {
                         </Badge>
                       )}
                     </td>
-                    <td className="px-2 py-2 text-right tabular-nums">{t.success_probability}%</td>
+                    <td className="px-2 py-2 text-right">
+                      {t.honest_assessment?.tier === "CALIBRATED" && t.honest_assessment.probability != null ? (
+                        <span className="font-semibold text-green-700 tabular-nums">{t.honest_assessment.probability}%</span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground whitespace-normal min-w-[150px] inline-block text-left">
+                          {t.honest_assessment?.display_message || "—"}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-2 py-2 text-right tabular-nums">Rs.{t.entry_price?.toFixed(0)}</td>
                     <td className="px-2 py-2 text-right tabular-nums">{formatPnl(t.pnl_1d_pct)}</td>
                     <td className="px-2 py-2 text-right tabular-nums">{formatPnl(t.pnl_3d_pct)}</td>
