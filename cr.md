@@ -62,4 +62,5 @@
 - Fixed a silent import bug in `backend/shadow_trades.py` where `normalize_ticker` was imported from the non-existent `backend.utils.ticker` instead of `tradingagents.utils.ticker`.
 - Added new unit test suite in `tests/backend/test_market_calendar.py` to verify the accuracy of `count_trading_days` across weekends, holidays, invalid ranges, and inputs, as well as the trading-day-based refresh logic for both paper and shadow trades.
 - Fixed discrepancy in recommender event filter by extending the triggers to look ahead (RBI policy check changed to ≤1 day, US Fed FOMC check changed to ≤2 days) to align with daily verdict logic and documentation, and added test coverage.
-
+- Fixed double-counting of trades in `backend/honest_assessment.py::get_honest_assessment()` by introducing deterministic Python deduplication for both direct database fallback queries and Kelly stats estimation, prioritizing paper trades over shadow trades.
+- Added comprehensive unit test in `tests/backend/test_honest_assessment.py` to verify the deduplication of duplicate paper and shadow trades in both fallback and Kelly calculation paths.

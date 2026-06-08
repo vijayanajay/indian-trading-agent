@@ -206,11 +206,15 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None)
                 # Query matches by fingerprint OR NULL fingerprints to check dynamically
                 rows = conn.execute(
                     """
-                    SELECT pnl_5d_pct, signal_fingerprint, triggered_signals, regime_at_entry
+                    SELECT source, ticker, entry_date, pnl_5d_pct, signal_fingerprint, triggered_signals, regime_at_entry
                     FROM (
-                        SELECT pnl_5d_pct, signal_fingerprint, triggered_signals, regime_at_entry FROM paper_trades WHERE pnl_5d_pct IS NOT NULL
+                        SELECT 'paper' as source, ticker, entry_date, pnl_5d_pct, signal_fingerprint, triggered_signals, regime_at_entry
+                        FROM paper_trades
+                        WHERE pnl_5d_pct IS NOT NULL
                         UNION ALL
-                        SELECT pnl_5d_pct, signal_fingerprint, triggered_signals, regime_at_entry FROM shadow_trades WHERE pnl_5d_pct IS NOT NULL
+                        SELECT 'shadow' as source, ticker, signal_date as entry_date, pnl_5d_pct, signal_fingerprint, triggered_signals, regime_at_entry
+                        FROM shadow_trades
+                        WHERE pnl_5d_pct IS NOT NULL
                     )
                     WHERE signal_fingerprint = ? OR signal_fingerprint IS NULL
                     """,
@@ -221,6 +225,7 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None)
                 wins = 0
                 sum_pnl = 0.0
                 
+                unique_trades = {}
                 for r in rows:
                     fp = r["signal_fingerprint"]
                     if fp is None:
@@ -236,11 +241,16 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None)
                         fp = compute_fingerprint(sig_types, reg)
                     
                     if fp == fingerprint:
-                        n_trades += 1
-                        pnl = r["pnl_5d_pct"]
-                        if pnl > 0:
-                            wins += 1
-                        sum_pnl += pnl
+                        key = (r["ticker"], r["entry_date"])
+                        if key not in unique_trades or r["source"] == "paper":
+                            unique_trades[key] = r
+
+                for r in unique_trades.values():
+                    n_trades += 1
+                    pnl = r["pnl_5d_pct"]
+                    if pnl > 0:
+                        wins += 1
+                    sum_pnl += pnl
 
                 if n_trades > 0:
                     win_rate = wins / n_trades
@@ -305,11 +315,15 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None)
                         with get_db() as conn:
                             pnl_rows = conn.execute(
                                 """
-                                SELECT pnl_5d_pct, signal_fingerprint, triggered_signals, regime_at_entry
+                                SELECT source, ticker, entry_date, pnl_5d_pct, signal_fingerprint, triggered_signals, regime_at_entry
                                 FROM (
-                                    SELECT pnl_5d_pct, signal_fingerprint, triggered_signals, regime_at_entry FROM paper_trades WHERE pnl_5d_pct IS NOT NULL
+                                    SELECT 'paper' as source, ticker, entry_date, pnl_5d_pct, signal_fingerprint, triggered_signals, regime_at_entry
+                                    FROM paper_trades
+                                    WHERE pnl_5d_pct IS NOT NULL
                                     UNION ALL
-                                    SELECT pnl_5d_pct, signal_fingerprint, triggered_signals, regime_at_entry FROM shadow_trades WHERE pnl_5d_pct IS NOT NULL
+                                    SELECT 'shadow' as source, ticker, signal_date as entry_date, pnl_5d_pct, signal_fingerprint, triggered_signals, regime_at_entry
+                                    FROM shadow_trades
+                                    WHERE pnl_5d_pct IS NOT NULL
                                 )
                                 WHERE signal_fingerprint = ? OR signal_fingerprint IS NULL
                                 """,
@@ -318,6 +332,7 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None)
                             
                             wins_list = []
                             losses_list = []
+                            unique_pnl_trades = {}
                             for r in pnl_rows:
                                 fp = r["signal_fingerprint"]
                                 if fp is None:
@@ -333,11 +348,16 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None)
                                     fp = compute_fingerprint(sig_types, reg)
                                 
                                 if fp == fingerprint:
-                                    pnl = r["pnl_5d_pct"]
-                                    if pnl > 0:
-                                        wins_list.append(pnl)
-                                    elif pnl < 0:
-                                        losses_list.append(pnl)
+                                    key = (r["ticker"], r["entry_date"])
+                                    if key not in unique_pnl_trades or r["source"] == "paper":
+                                        unique_pnl_trades[key] = r
+                                        
+                            for r in unique_pnl_trades.values():
+                                pnl = r["pnl_5d_pct"]
+                                if pnl > 0:
+                                    wins_list.append(pnl)
+                                elif pnl < 0:
+                                    losses_list.append(pnl)
                             
                             avg_win = sum(wins_list) / len(wins_list) if wins_list else 0.0
                             avg_loss = sum(losses_list) / len(losses_list) if losses_list else 0.0

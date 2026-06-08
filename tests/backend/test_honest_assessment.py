@@ -594,5 +594,124 @@ def test_fallback_query_resolves_null_fingerprints():
     assert assessment["suggested_position_size_pct"] == 7.5
 
 
+def test_honest_assessment_fallback_and_kelly_deduplication():
+    """Verify that paper and shadow trades with the same ticker and date are deduplicated,
+    preferring paper over shadow, in both fallback and Kelly stats calculation paths.
+    """
+    import json
+    
+    # 1. Clear everything
+    with get_db() as conn:
+        conn.execute("DELETE FROM paper_trades")
+        conn.execute("DELETE FROM shadow_trades")
+        conn.execute("DELETE FROM signal_performance_cache")
+        # Ensure model cache is cleared
+        import backend.signal_model
+        backend.signal_model._MODEL_CACHE = None
+
+    signals = [{"type": "Special Signal"}]
+    regime = "BEAR"
+    expected_fp = compute_fingerprint(["Special Signal"], regime)
+    
+    # Populate cache with a dummy entry so cache count > 0 (synchronous backfill won't run, forcing fallback path)
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO signal_performance_cache (fingerprint, n_trades, wins, win_rate, wilson_lower, wilson_upper, avg_pnl)
+               VALUES ('dummy_fp', 5, 3, 0.6, 0.3, 0.8, 1.0)"""
+        )
+
+    # 2. Insert 10 unique trades, but with duplicates in shadow trades
+    # We want to insert 10 unique ticker+date combinations to land exactly in EMERGING tier (10 <= n < 30).
+    # If deduplication works, n_trades will be 10. If not, it will be 15.
+    with get_db() as conn:
+        # 10 paper trades (unique dates)
+        for i in range(10):
+            conn.execute(
+                """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_date, regime_at_entry, pnl_5d_pct, signal_fingerprint)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (f"REL", 100.0, json.dumps(signals), f"2026-06-{i:02d}", regime, 2.0, expected_fp)
+            )
+            
+        # 5 duplicate shadow trades (same ticker and dates as the first 5 paper trades)
+        # These shadow trades have different pnl_5d_pct (e.g. -5.0) to verify they are not chosen.
+        for i in range(5):
+            conn.execute(
+                """INSERT INTO shadow_trades (ticker, signal_date, entry_price, triggered_signals, regime_at_entry, pnl_5d_pct, signal_fingerprint)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (f"REL", f"2026-06-{i:02d}", 100.0, json.dumps(signals), regime, -5.0, expected_fp)
+            )
+
+    # Call get_honest_assessment.
+    # It should:
+    # 1. Hit fallback query (since cache has no entry for expected_fp).
+    # 2. Find 10 paper + 5 shadow trades, but deduplicate the 5 shadow trades.
+    # 3. n_trades should be 10, all wins (pnl = 2.0 > 0), so win_rate = 1.0.
+    # (If deduplication failed, n_trades would be 15, and 5 of them would have pnl = -5.0, resulting in a win rate < 1.0).
+    assessment = get_honest_assessment(signals, 3.5, regime)
+    
+    assert assessment["n_trades"] == 10
+    assert assessment["tier"] == "EMERGING"
+    assert assessment["win_rate"] == 1.0
+
+    # 3. Test Kelly stats block deduplication (within CALIBRATED tier)
+    # We need to insert a trained model so CALIBRATED tier can trigger.
+    # And we update cache for expected_fp to n_trades = 120 (>= 100) so it qualifies as CALIBRATED.
+    with get_db() as conn:
+        conn.execute("INSERT OR REPLACE INTO model_coefficients (feature, coefficient, auc, brier, last_trained_date) VALUES ('intercept', 0.5, 0.60, 0.15, '2026-06-07')")
+        conn.execute("INSERT OR REPLACE INTO model_coefficients (feature, coefficient, auc, brier, last_trained_date) VALUES ('sig_special_signal', 0.5, 0.60, 0.15, '2026-06-07')")
+        conn.execute("INSERT OR REPLACE INTO model_coefficients (feature, coefficient, auc, brier, last_trained_date) VALUES ('regime_BEAR', 0.5, 0.60, 0.15, '2026-06-07')")
+        
+        conn.execute(
+            """INSERT OR REPLACE INTO signal_performance_cache (fingerprint, n_trades, wins, win_rate, wilson_lower, wilson_upper, avg_pnl)
+               VALUES (?, 120, 80, 0.66, 0.60, 0.72, 1.5)""",
+            (expected_fp,),
+        )
+        
+        # Clear paper & shadow trades and insert fresh ones to check Kelly stats block (payoff ratio)
+        conn.execute("DELETE FROM paper_trades")
+        conn.execute("DELETE FROM shadow_trades")
+        
+        # Insert 1 paper win, 1 paper loss
+        conn.execute(
+            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_date, regime_at_entry, pnl_5d_pct, signal_fingerprint)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            ("REL", 100.0, "[]", "2026-06-01", regime, 4.0, expected_fp)
+        )
+        conn.execute(
+            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_date, regime_at_entry, pnl_5d_pct, signal_fingerprint)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            ("REL", 100.0, "[]", "2026-06-02", regime, -2.0, expected_fp)
+        )
+        
+        # Insert duplicate shadow trades for both, but with huge positive/negative values
+        # If deduplication works, these huge values will be ignored and we'll get avg_win=4.0 and avg_loss=-2.0.
+        # If deduplication fails, payoff ratio will be distorted.
+        conn.execute(
+            """INSERT INTO shadow_trades (ticker, signal_date, entry_price, triggered_signals, regime_at_entry, pnl_5d_pct, signal_fingerprint)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            ("REL", "2026-06-01", 100.0, "[]", regime, 400.0, expected_fp)
+        )
+        conn.execute(
+            """INSERT INTO shadow_trades (ticker, signal_date, entry_price, triggered_signals, regime_at_entry, pnl_5d_pct, signal_fingerprint)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            ("REL", "2026-06-02", 100.0, "[]", regime, -200.0, expected_fp)
+        )
+        
+        # Clear model coefficients cache to pick up new ones
+        import backend.signal_model
+        backend.signal_model._MODEL_CACHE = None
+
+    # Call get_honest_assessment
+    assessment = get_honest_assessment(signals, 4.5, regime)
+    assert assessment["tier"] == "CALIBRATED"
+    assert assessment["low_confidence"] is False
+    # If deduplication was successful:
+    # avg_win = 4.0, avg_loss = -2.0 => payoff ratio b = 4.0 / 2.0 = 2.0
+    # logit = 0.5 (intercept) + 0.5 (sig) + 0.5 (regime) = 1.5 => p = 1 / (1 + e^-1.5) = 0.8176 => q = 0.1824
+    # kelly_frac = (p*b - q)/b = (0.8176*2.0 - 0.1824)/2.0 = 0.7264 => kelly_pct = 72.6% capped at 15.0%
+    assert assessment["kelly_pct"] == 15.0
+
+
+
 
 
