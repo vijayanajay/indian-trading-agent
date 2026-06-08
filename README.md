@@ -250,8 +250,8 @@ Live data via NSE (cached 1 hour). Falls back to manual entry if scraping fails.
 |---------------------|---------------|
 | Stock earnings (≤2 days) | -2.5 |
 | Union Budget (≤1 day) | -2.0 |
-| RBI Monetary Policy (today) | -1.5 |
-| US Fed FOMC (today) | -1.0 |
+| RBI Monetary Policy (≤1 day) | -1.5 |
+| US Fed FOMC (≤2 days) | -1.0 |
 | F&O monthly expiry (today) | -0.5 |
 
 Hardcoded RBI/Budget/Fed dates (published yearly). Per-stock earnings dates pulled from yfinance.

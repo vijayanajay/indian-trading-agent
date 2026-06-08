@@ -235,3 +235,44 @@ def test_filter_adjustments_merged_and_hashed():
             expected_fp = compute_fingerprint(["FII/DII Flow (BULLISH)", "Strong Uptrend"], "UNKNOWN")
             assert fp == expected_fp
 
+
+def test_get_event_filter_for_ticker():
+    from backend.calendar_data import get_event_filter_for_ticker
+    from datetime import date, timedelta
+
+    with patch("backend.calendar_data.get_market_events_in_range") as mock_events, \
+         patch("backend.calendar_data.get_earnings_in_range") as mock_earnings:
+
+        mock_earnings.return_value = []
+
+        # Test case 1: RBI policy tomorrow (1 day ahead)
+        today = date.today()
+        tomorrow = today + timedelta(days=1)
+        mock_events.return_value = [
+            {"type": "RBI_POLICY", "date": tomorrow.strftime("%Y-%m-%d"), "name": "RBI Monetary Policy Decision"}
+        ]
+
+        res = get_event_filter_for_ticker("RELIANCE", days_ahead=2)
+        assert res["has_event"] is True
+        assert res["score_adjustment"] == -1.5
+        assert "RBI policy tomorrow" in res["warning"]
+
+        # Test case 2: FOMC in 2 days
+        two_days = today + timedelta(days=2)
+        mock_events.return_value = [
+            {"type": "FOMC", "date": two_days.strftime("%Y-%m-%d"), "name": "US Fed FOMC Meeting"}
+        ]
+
+        res = get_event_filter_for_ticker("RELIANCE", days_ahead=2)
+        assert res["has_event"] is True
+        assert res["score_adjustment"] == -1.0
+        assert "Fed FOMC in 2 days" in res["warning"]
+
+        # Test case 3: FOMC in 3 days (ignored because days_ahead defaults to 2)
+        three_days = today + timedelta(days=3)
+        mock_events.return_value = [
+            {"type": "FOMC", "date": three_days.strftime("%Y-%m-%d"), "name": "US Fed FOMC Meeting"}
+        ]
+        res = get_event_filter_for_ticker("RELIANCE", days_ahead=2)
+        assert res["has_event"] is False
+        assert res["score_adjustment"] == 0.0

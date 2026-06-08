@@ -61,4 +61,5 @@
 - Updated the auto-expiration check in `refresh_paper_trade_prices()` to use trading days to prevent premature trade expiration before the 10d horizon price is fetched.
 - Fixed a silent import bug in `backend/shadow_trades.py` where `normalize_ticker` was imported from the non-existent `backend.utils.ticker` instead of `tradingagents.utils.ticker`.
 - Added new unit test suite in `tests/backend/test_market_calendar.py` to verify the accuracy of `count_trading_days` across weekends, holidays, invalid ranges, and inputs, as well as the trading-day-based refresh logic for both paper and shadow trades.
+- Fixed discrepancy in recommender event filter by extending the triggers to look ahead (RBI policy check changed to ≤1 day, US Fed FOMC check changed to ≤2 days) to align with daily verdict logic and documentation, and added test coverage.
 

@@ -339,12 +339,18 @@ def get_event_filter_for_ticker(ticker: str, days_ahead: int = 2) -> dict:
             warnings.append(f"Budget in {days_until} day(s) — extreme volatility")
             score_adj -= 2.0
             events_found.append({**e, "days_until": days_until})
-        elif e["type"] == "RBI_POLICY" and days_until == 0:
-            warnings.append("RBI policy decision today")
+        elif e["type"] == "RBI_POLICY" and days_until <= 1:
+            if days_until == 0:
+                warnings.append("RBI policy decision today")
+            else:
+                warnings.append("RBI policy tomorrow")
             score_adj -= 1.5
             events_found.append({**e, "days_until": days_until})
-        elif e["type"] == "FOMC" and days_until == 0:
-            warnings.append("Fed FOMC decision today")
+        elif e["type"] == "FOMC" and days_until <= 2:
+            if days_until == 0:
+                warnings.append("Fed FOMC decision today")
+            else:
+                warnings.append(f"Fed FOMC in {days_until} day{'s' if days_until != 1 else ''}")
             score_adj -= 1.0
             events_found.append({**e, "days_until": days_until})
         elif e["type"] == "FNO_EXPIRY" and days_until == 0:

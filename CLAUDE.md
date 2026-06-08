@@ -390,7 +390,7 @@ Learning Insights updates with combined data
 - `backend/calendar_data.py` — hardcoded RBI/Budget/Fed/F&O dates + yfinance earnings fetch
 - `get_event_filter_for_ticker()` returns score adjustment for upcoming events
 - Recommender's `_apply_event_filter()` penalizes stocks with imminent events
-- Earnings (≤2 days): -2.5 | Budget (≤1 day): -2.0 | RBI today: -1.5 | FOMC today: -1.0 | F&O expiry today: -0.5
+- Earnings (≤2 days): -2.5 | Budget (≤1 day): -2.0 | RBI (≤1 day): -1.5 | FOMC (≤2 days): -1.0 | F&O expiry today: -0.5
 - Dashboard banner shows today's events + 14-day forecast
 - API: `/api/calendar/today`, `/upcoming`, `/ticker/{ticker}`, `/refresh-earnings`
 
