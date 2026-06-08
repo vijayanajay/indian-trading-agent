@@ -118,7 +118,7 @@ def test_gap_signals(mock_ticker):
     assert len(gap_signals) == 1
     assert gap_signals[0]["direction"] == "FADE"
 
-    # 3. Test Gap Up (Unfilled - No Signal): gap_pct >= 2.0, low > prev_close, close >= open
+    # 3. Test Gap Up (Unfilled - Green Candle - Fade): gap_pct >= 2.0, low > prev_close, close >= open
     # prev_close = 100, open = 103 (gap 3%), low = 101 (unfilled), close = 104 (close >= open)
     opens = [100.0] * 59 + [103.0]
     highs = [105.0] * 59 + [105.0]
@@ -132,8 +132,9 @@ def test_gap_signals(mock_ticker):
     
     result = _analyze_stock("TEST", allowed_strategies={"gap": True})
     assert result is not None
-    gap_signals = [s for s in result["signals"] if "Gap" in s["type"]]
-    assert len(gap_signals) == 0
+    gap_signals = [s for s in result["signals"] if "Gap Up (Unfilled)" in s["type"]]
+    assert len(gap_signals) == 1
+    assert gap_signals[0]["direction"] == "FADE"
 
     # 4. Test Gap Down (Filled - Reversal): gap_pct <= -2.0, high >= prev_close
     # prev_close = 100, open = 97 (gap -3%), high = 100.5 (filled), close = 99

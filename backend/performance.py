@@ -88,13 +88,10 @@ def measure_gap_strategy(
             if gap_pct > 0:
                 # Gap up
                 today_low = float(hist.iloc[i]["Low"])
-                today_close = float(hist.iloc[i]["Close"])
                 if today_low <= prev_close:
                     direction = "long"
-                elif today_close < today_open:
-                    direction = "short"
                 else:
-                    continue
+                    direction = "short"
             else:
                 # Gap down
                 today_high = float(hist.iloc[i]["High"])

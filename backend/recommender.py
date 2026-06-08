@@ -147,7 +147,7 @@ def _analyze_stock(ticker: str, allowed_strategies: dict = None) -> dict | None:
                     if current_low <= prev_close:
                         score += _ACTIVE_WEIGHTS["gap_up_filled"]
                         signals.append({"type": "Gap Up (Filled)", "direction": "BULLISH", "value": f"+{gap_pct:.2f}%", "weight": _ACTIVE_WEIGHTS["gap_up_filled"]})
-                    elif current_close < current_open:
+                    else:
                         score += _ACTIVE_WEIGHTS["gap_up_open"]
                         signals.append({"type": "Gap Up (Unfilled)", "direction": "FADE", "value": f"+{gap_pct:.2f}%", "weight": _ACTIVE_WEIGHTS["gap_up_open"]})
                 else:

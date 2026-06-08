@@ -51,4 +51,6 @@
 - Integrated a synchronous cache priming check on demand within `get_honest_assessment()` if the cache is found to be empty.
 - Modified direct database fallback queries in `get_honest_assessment()` to dynamically match trades with `NULL` fingerprints in Python by parsing their JSON signals and entry regimes, preventing new signals from degrading to the conservative `EXPLORATORY` tier due to stale/missing migration fingerprints.
 - Added comprehensive unit tests in `test_honest_assessment.py` verifying synchronous cache backfill on empty tables and Python-based dynamic resolution of `NULL` fingerprints in fallback queries.
+- Fixed gap-up unfilled signal asymmetry in `backend/recommender.py` and `backend/performance.py` to unconditionally emit a bearish fade signal (`gap_up_open`) or short trade for all unfilled gap-up days (including green-candle days), matching the scanner and backtest simulator logic.
+
 
