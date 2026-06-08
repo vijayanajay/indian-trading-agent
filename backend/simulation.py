@@ -330,9 +330,9 @@ def _analyze_stock_at_date(ticker: str, target_date: date) -> dict | None:
         gap_pct = (current_open - prev_close) / prev_close * 100 if prev_close else 0
         if abs(gap_pct) >= 2.0:
             if gap_pct > 0:
-                score += 1.5 if current_close >= prev_close else -0.5
+                score += 1.5 if current_low <= prev_close else -0.5
             else:
-                score += 1.5 if current_close >= prev_close else -0.5
+                score += 1.5 if current_high >= prev_close else -0.5
 
         # Volume + Breakout
         vol_ratio = current_volume / avg_volume if avg_volume > 0 else 1
