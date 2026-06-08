@@ -9,7 +9,7 @@ import numpy as np
 from datetime import datetime, timedelta, date
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tradingagents.utils.ticker import normalize_ticker
-from tradingagents.utils.market_calendar import next_trading_day, is_trading_day
+from tradingagents.utils.market_calendar import next_trading_day, is_trading_day, count_trading_days
 from backend.scanner import UNIVERSES
 from backend.db import (
     add_paper_trade,
@@ -174,18 +174,18 @@ def refresh_paper_trade_prices(trade_id: int = None) -> dict:
         symbol = normalize_ticker(trade["ticker"])
         entry_date = trade["entry_date"]
 
-        # Calculate days elapsed
+        # Calculate trading days elapsed
         try:
             entry = datetime.strptime(entry_date, "%Y-%m-%d").date()
             today = date.today()
-            days_since = (today - entry).days
+            trading_days_elapsed = count_trading_days(entry, today)
         except Exception:
             continue
 
         prices = {}
         # Only fetch prices for horizons that have elapsed
         for horizon_label, days in [("1d", 1), ("3d", 3), ("5d", 5), ("10d", 10)]:
-            if days_since >= days:
+            if trading_days_elapsed >= days:
                 existing = trade.get(f"price_{horizon_label}")
                 if not existing:
                     price = _price_n_days_later(symbol, entry_date, days)
@@ -196,8 +196,8 @@ def refresh_paper_trade_prices(trade_id: int = None) -> dict:
             update_paper_trade_prices(trade["id"], prices)
             updated_count += 1
 
-        # Auto-expire after 10 days
-        if days_since > 10 and trade["status"] == "active":
+        # Auto-expire after 10 trading days
+        if trading_days_elapsed > 10 and trade["status"] == "active":
             update_paper_trade_status(trade["id"], "expired")
 
     # Also refresh shadow trades so they stay in sync with paper trades.

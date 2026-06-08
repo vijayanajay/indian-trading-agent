@@ -56,3 +56,9 @@
 - Modified recommender filter functions (`_apply_market_bias`, `_apply_event_filter`, `_apply_concentration_filter`) in `backend/recommender.py` to call `get_honest_assessment` with the combined list of core technical signals and filter adjustments.
 - Updated `recommend()` in `backend/recommender.py` to merge the applied filter adjustments into the main `signals` list and clear the `filter_adjustments` array before returning, ensuring database insertion of paper/shadow trades and background cron jobs use the correct combined signals for fingerprint generation, while preventing duplicates in the frontend UI.
 - Added a new unit test `test_filter_adjustments_merged_and_hashed` in `tests/backend/test_recommender.py` to verify the signal merging and fingerprint hashing behavior.
+- Implemented `count_trading_days(start, end)` helper in `tradingagents/utils/market_calendar.py` and exposed it in `tradingagents/utils/__init__.py`.
+- Replaced the calendar-day check (`days_since`) with trading-day counter (`trading_days_elapsed`) in `backend/simulation.py::refresh_paper_trade_prices()` and `backend/shadow_trades.py::refresh_shadow_prices()`.
+- Updated the auto-expiration check in `refresh_paper_trade_prices()` to use trading days to prevent premature trade expiration before the 10d horizon price is fetched.
+- Fixed a silent import bug in `backend/shadow_trades.py` where `normalize_ticker` was imported from the non-existent `backend.utils.ticker` instead of `tradingagents.utils.ticker`.
+- Added new unit test suite in `tests/backend/test_market_calendar.py` to verify the accuracy of `count_trading_days` across weekends, holidays, invalid ranges, and inputs, as well as the trading-day-based refresh logic for both paper and shadow trades.
+

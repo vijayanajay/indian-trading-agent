@@ -115,3 +115,22 @@ def get_market_session(dt: datetime = None) -> str:
         return "post_market"
     else:
         return "closed"
+
+
+def count_trading_days(start: date, end: date) -> int:
+    """Count trading days between start (exclusive) and end (inclusive)."""
+    if isinstance(start, datetime):
+        start = start.date()
+    if isinstance(end, datetime):
+        end = end.date()
+
+    if start >= end:
+        return 0
+    count = 0
+    curr = start
+    while curr < end:
+        curr += timedelta(days=1)
+        if is_trading_day(curr):
+            count += 1
+    return count
+

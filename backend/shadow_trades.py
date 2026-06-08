@@ -25,6 +25,7 @@ from datetime import date, datetime
 from typing import Optional
 
 from backend.db import get_db
+from tradingagents.utils.market_calendar import count_trading_days
 
 
 # Conviction thresholds for which picks get shadow-tracked.
@@ -135,7 +136,7 @@ def record_shadow_trades_from_recommendations(recs: dict) -> dict:
 def refresh_shadow_prices() -> dict:
     """Backfill 1/3/5/10-day prices + P&L for shadow trades."""
     from backend.simulation import _price_n_days_later
-    from backend.utils.ticker import normalize_ticker
+    from tradingagents.utils.ticker import normalize_ticker
 
     with get_db() as conn:
         rows = conn.execute(
@@ -150,14 +151,14 @@ def refresh_shadow_prices() -> dict:
     for r in rows:
         try:
             entry_date = datetime.fromisoformat(r["signal_date"]).date()
-            days_since = (today - entry_date).days
+            trading_days_elapsed = count_trading_days(entry_date, today)
         except Exception:
             continue
 
         symbol = normalize_ticker(r["ticker"])
         updates = {}
         for horizon_label, days in [("1d", 1), ("3d", 3), ("5d", 5), ("10d", 10)]:
-            if days_since < days:
+            if trading_days_elapsed < days:
                 continue
             existing = r[f"price_{horizon_label}"]
             if existing is not None:
