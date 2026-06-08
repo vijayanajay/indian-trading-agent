@@ -280,11 +280,11 @@ def train_signal_model() -> dict:
         with get_db() as conn:
             rows = conn.execute(
                 """
-                SELECT ticker, entry_date, triggered_signals, regime_at_entry, pnl_5d_pct
+                SELECT 'paper' as source, ticker, entry_date, triggered_signals, regime_at_entry, pnl_5d_pct
                 FROM paper_trades
                 WHERE pnl_5d_pct IS NOT NULL AND triggered_signals IS NOT NULL
-                UNION
-                SELECT ticker, signal_date as entry_date, triggered_signals, regime_at_entry, pnl_5d_pct
+                UNION ALL
+                SELECT 'shadow' as source, ticker, signal_date as entry_date, triggered_signals, regime_at_entry, pnl_5d_pct
                 FROM shadow_trades
                 WHERE pnl_5d_pct IS NOT NULL AND triggered_signals IS NOT NULL
                 """
@@ -293,11 +293,12 @@ def train_signal_model() -> dict:
         logger.error(f"Failed to query training data: {e}")
         return {"status": "error", "message": f"Database query failed: {e}"}
 
-    # De-duplicate in Python just to be absolutely sure
+    # De-duplicate in Python deterministically: prefer paper over shadow
     unique_trades = {}
     for r in rows:
         key = (r["ticker"], r["entry_date"])
-        unique_trades[key] = r
+        if key not in unique_trades or r["source"] == "paper":
+            unique_trades[key] = r
 
     trades = list(unique_trades.values())
     n_samples = len(trades)

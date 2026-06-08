@@ -45,3 +45,4 @@
 - Updated Next.js frontend pages (`recommendations/page.tsx` and `TodayPicks.tsx`) to pass the recommendation's suggested position size when tracking new paper trades.
 - Updated unit tests in `test_honest_assessment.py` to assert correct backfill, fallback, and drawdown calculation behaviors.
 - Corrected the historical backtest replay in `backend/simulation.py` (`_analyze_stock_at_date()`) to use intraday extreme prices (`current_low` / `current_high` instead of `current_close`) for gap fill detection to align with the new gap fill definition. Added corresponding unit tests in `tests/backend/test_simulation.py`.
+- Fixed the signal model training data query in backend/signal_model.py to use UNION ALL with source tag discriminators, and implemented deterministic deduplication in Python to prioritize paper trades over shadow trades on duplicate entries.

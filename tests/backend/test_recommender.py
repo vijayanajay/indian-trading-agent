@@ -15,31 +15,36 @@ def clean_db_and_cache():
     yield
 
 def test_apply_market_bias():
-    res = {"score": 3.0, "bullish_signal_count": 2, "bearish_signal_count": 0}
+    res = {"score": 3.0, "bullish_signal_count": 2, "bearish_signal_count": 0, "signals": []}
     bias = {"bias": "BULLISH", "score_adjustment": 1.0, "reasoning": "buying"}
 
     out = _apply_market_bias(res, bias)
     assert out["score"] == 4.0
     assert out["direction"] == "STRONG BUY"
     assert out["market_bias_applied"] == "BULLISH"
+    assert out["market_bias_score_adj"] == 1.0
+    assert "FII/DII Flow" in out["filter_adjustments"][0]["type"]
+    assert len(out["signals"]) == 0
 
 def test_apply_concentration_filter():
-    res = {"score": 3.0, "bullish_signal_count": 2}
+    res = {"score": 3.0, "bullish_signal_count": 2, "signals": []}
     conc = {"sector": "IT", "score_adjustment": -2.0, "warnings": ["High risk"]}
 
     out = _apply_concentration_filter(res, conc)
     assert out["score"] == 1.0
     assert out["direction"] == "NEUTRAL"
-    assert "Concentration" in out["signals"][0]["type"]
+    assert "Concentration" in out["filter_adjustments"][0]["type"]
+    assert len(out["signals"]) == 0
 
 def test_apply_event_filter():
-    res = {"score": 3.0, "bullish_signal_count": 2}
+    res = {"score": 3.0, "bullish_signal_count": 2, "signals": []}
     event = {"has_event": True, "score_adjustment": -2.0, "warning": "RBI Policy"}
 
     out = _apply_event_filter(res, event)
     assert out["score"] == 1.0
     assert out["direction"] == "NEUTRAL"
-    assert "Event Risk" in out["signals"][0]["type"]
+    assert "Event Risk" in out["filter_adjustments"][0]["type"]
+    assert len(out["signals"]) == 0
 
 @patch("backend.recommender.UNIVERSES")
 @patch("backend.recommender._refresh_active_weights")

@@ -173,7 +173,7 @@ function RecommendationCard({ rec }: { rec: any }) {
         {expanded && (
           <div className="mt-4 pt-4 border-t space-y-2">
             <p className="text-xs font-medium text-muted-foreground mb-2">WHY THIS RECOMMENDATION:</p>
-            {rec.signals.map((s: any, i: number) => {
+            {((rec.signals || []).concat(rec.filter_adjustments || [])).map((s: any, i: number) => {
               const dirColor = s.direction === "BULLISH" ? "text-green-700 bg-green-50" : s.direction === "BEARISH" ? "text-red-700 bg-red-50" : "text-gray-600 bg-gray-50";
               return (
                 <div key={i} className={`flex items-center justify-between p-2 rounded text-sm ${dirColor}`}>

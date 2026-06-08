@@ -291,6 +291,7 @@ def _analyze_stock(ticker: str, allowed_strategies: dict = None) -> dict | None:
             "honest_assessment": assessment,
             "suggested_position_size_pct": assessment.get("suggested_position_size_pct"),
             "signals": signals,
+            "filter_adjustments": [],
             "bullish_signal_count": len(bullish_signals),
             "bearish_signal_count": len(bearish_signals),
             "near_support": round(recent_low, 2),
@@ -308,18 +309,14 @@ def _apply_market_bias(result: dict, bias: dict) -> dict:
     adj = bias["score_adjustment"]
     new_score = round(result["score"] + adj, 2)
 
-    # Add FII/DII as a visible signal
+    # Add FII/DII as a filter adjustment
     fii_signal = {
         "type": f"FII/DII Flow ({bias['bias']})",
         "direction": "BULLISH" if adj > 0 else ("BEARISH" if adj < 0 else "NEUTRAL"),
         "value": bias["reasoning"],
         "weight": adj,
     }
-    result["signals"] = list(result.get("signals", [])) + [fii_signal]
-    if adj > 0:
-        result["bullish_signal_count"] = result.get("bullish_signal_count", 0) + 1
-    elif adj < 0:
-        result["bearish_signal_count"] = result.get("bearish_signal_count", 0) + 1
+    result.setdefault("filter_adjustments", []).append(fii_signal)
 
     # Re-compute honest assessment with new score
     from backend.honest_assessment import get_honest_assessment
@@ -356,6 +353,7 @@ def _apply_market_bias(result: dict, bias: dict) -> dict:
     result["honest_assessment"] = assessment
     result["suggested_position_size_pct"] = assessment.get("suggested_position_size_pct")
     result["market_bias_applied"] = bias["bias"]
+    result["market_bias_score_adj"] = adj
 
     return result
 
@@ -381,8 +379,7 @@ def _apply_concentration_filter(result: dict, concentration_check: dict) -> dict
         "value": "; ".join(warnings) if warnings else "Approaching sector limit",
         "weight": adj,
     }
-    result["signals"] = list(result.get("signals", [])) + [conc_signal]
-    result["bearish_signal_count"] = result.get("bearish_signal_count", 0) + 1
+    result.setdefault("filter_adjustments", []).append(conc_signal)
     result["concentration_warning"] = "; ".join(warnings) if warnings else None
     result["concentration_breach"] = concentration_check.get("would_breach", False)
 
@@ -435,7 +432,7 @@ def _apply_event_filter(result: dict, event_filter: dict) -> dict:
 
     new_score = round(result["score"] + adj, 2)
 
-    # Add event as a visible "signal"
+    # Add event as a filter adjustment
     warning = event_filter.get("warning") or "Upcoming event"
     event_signal = {
         "type": f"Event Risk ({warning})",
@@ -443,8 +440,7 @@ def _apply_event_filter(result: dict, event_filter: dict) -> dict:
         "value": warning,
         "weight": adj,
     }
-    result["signals"] = list(result.get("signals", [])) + [event_signal]
-    result["bearish_signal_count"] = result.get("bearish_signal_count", 0) + 1
+    result.setdefault("filter_adjustments", []).append(event_signal)
     result["event_warning"] = warning
     result["upcoming_events"] = event_filter.get("events", [])
 
