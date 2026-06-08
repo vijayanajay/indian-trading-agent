@@ -46,3 +46,9 @@
 - Updated unit tests in `test_honest_assessment.py` to assert correct backfill, fallback, and drawdown calculation behaviors.
 - Corrected the historical backtest replay in `backend/simulation.py` (`_analyze_stock_at_date()`) to use intraday extreme prices (`current_low` / `current_high` instead of `current_close`) for gap fill detection to align with the new gap fill definition. Added corresponding unit tests in `tests/backend/test_simulation.py`.
 - Fixed the signal model training data query in backend/signal_model.py to use UNION ALL with source tag discriminators, and implemented deterministic deduplication in Python to prioritize paper trades over shadow trades on duplicate entries.
+- Fixed concurrent retraining race conditions by implementing `_RETRAIN_LOCK` thread safety in `backend/signal_model.py` and decoupled retraining checks from price refresh loops (`backend/simulation.py` and `backend/shadow_trades.py`) by moving `check_and_trigger_retraining()` into the background cron daemon (`backend/cron.py`).
+- Checked and primed `signal_performance_cache` in database initialization (`ensure_db()`) to backfill fingerprints and populate performance stats on startup if the cache table is empty.
+- Integrated a synchronous cache priming check on demand within `get_honest_assessment()` if the cache is found to be empty.
+- Modified direct database fallback queries in `get_honest_assessment()` to dynamically match trades with `NULL` fingerprints in Python by parsing their JSON signals and entry regimes, preventing new signals from degrading to the conservative `EXPLORATORY` tier due to stale/missing migration fingerprints.
+- Added comprehensive unit tests in `test_honest_assessment.py` verifying synchronous cache backfill on empty tables and Python-based dynamic resolution of `NULL` fingerprints in fallback queries.
+

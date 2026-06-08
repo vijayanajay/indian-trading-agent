@@ -302,6 +302,12 @@ def _cron_loop():
 
             if should_run_train:
                 retrain_calibration_model()
+            else:
+                try:
+                    from backend.signal_model import check_and_trigger_retraining
+                    check_and_trigger_retraining()
+                except Exception as e:
+                    logger.error(f"Error checking retraining trigger in cron: {e}")
 
         except Exception as e:
             logger.error(f"Error in background cron execution: {e}")

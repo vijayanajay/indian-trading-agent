@@ -183,13 +183,6 @@ def refresh_shadow_prices() -> dict:
                 )
             updated += 1
 
-    if updated > 0:
-        try:
-            from backend.signal_model import check_and_trigger_retraining
-            check_and_trigger_retraining()
-        except Exception as e:
-            print(f"[Shadow Trades] retraining check failed: {e}", flush=True)
-
     return {"status": "ok", "scanned": len(rows), "updated": updated}
 
 

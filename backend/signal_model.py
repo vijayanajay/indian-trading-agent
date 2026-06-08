@@ -76,6 +76,7 @@ FEATURE_NAMES += [f"int_{k1}_x_{k2}" for k1, k2 in INTERACTIONS]
 # In-memory coefficients cache
 _MODEL_CACHE = None  # Tuple of (coefs_dict, auc, brier, last_loaded_time)
 _CACHE_LOCK = threading.Lock()
+_RETRAIN_LOCK = threading.Lock()
 
 
 def extract_features(signals: list, regime: str | None) -> dict[str, float]:
@@ -259,6 +260,9 @@ def count_closed_trades() -> int:
 
 def check_and_trigger_retraining():
     """Trigger background retraining if 20+ new closed trades accumulated."""
+    if _RETRAIN_LOCK.locked():
+        return
+
     current_count = count_closed_trades()
     if current_count < 50:
         return
@@ -274,6 +278,17 @@ def check_and_trigger_retraining():
 
 def train_signal_model() -> dict:
     """Train the model, run 5-fold CV, and promote to active if validation criteria are met."""
+    if not _RETRAIN_LOCK.acquire(blocking=False):
+        logger.warning("Signal model retraining already in progress. Skipping.")
+        return {"status": "warning", "message": "Retraining already in progress."}
+    try:
+        return _train_signal_model_internal()
+    finally:
+        _RETRAIN_LOCK.release()
+
+
+def _train_signal_model_internal() -> dict:
+    """Internal implementation of signal model retraining."""
     logger.info("Starting signal model retraining job...")
     try:
         # 1. Fetch all closed trades with their inputs & outcomes

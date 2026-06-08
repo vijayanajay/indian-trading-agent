@@ -219,6 +219,18 @@ def ensure_db():
     _migrate_paper_trades_columns()
     _run_position_size_migration()
 
+    # Prime cache on startup if empty
+    try:
+        with get_db() as conn:
+            row = conn.execute("SELECT COUNT(*) as cnt FROM signal_performance_cache").fetchone()
+            cache_empty = (row["cnt"] == 0) if row else True
+        if cache_empty:
+            from backend.cron import recompute_fingerprints_and_features_for_last_180_days
+            recompute_fingerprints_and_features_for_last_180_days()
+    except Exception:
+        pass
+
+
 
 @contextmanager
 def get_db():

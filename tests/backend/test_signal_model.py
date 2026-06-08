@@ -248,3 +248,40 @@ def test_deterministic_deduplication():
         for features in X_passed:
             assert features[regime_bear_idx] == 0.0, "Duplicate shadow trade with BEAR regime was not discarded!"
 
+
+def test_retraining_concurrency_lock():
+    """Verify that train_signal_model acquires _RETRAIN_LOCK and rejects concurrent execution."""
+    import time
+    import threading
+    
+    # We patch _train_signal_model_internal to sleep for 0.5s so we have time to call concurrently
+    def mock_internal():
+        time.sleep(0.5)
+        return {"status": "success"}
+        
+    with patch("backend.signal_model._train_signal_model_internal", side_effect=mock_internal):
+        results = []
+        
+        def run_train():
+            res = train_signal_model()
+            results.append(res)
+            
+        t1 = threading.Thread(target=run_train)
+        t2 = threading.Thread(target=run_train)
+        
+        t1.start()
+        time.sleep(0.1)  # Ensure t1 starts and acquires the lock
+        t2.start()
+        
+        t1.join()
+        t2.join()
+        
+        # One run should succeed, the other should warning-skip because lock is held
+        statuses = [r["status"] for r in results]
+        assert "success" in statuses
+        assert "warning" in statuses
+        
+        # The skipped one should have the exact warning message
+        warning_res = next(r for r in results if r["status"] == "warning")
+        assert "already in progress" in warning_res["message"]
+

@@ -174,6 +174,15 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None)
     # 1. Attempt O(1) Cache Lookup
     try:
         with get_db() as conn:
+            # Prime cache on request if empty
+            cache_count = conn.execute("SELECT COUNT(*) as cnt FROM signal_performance_cache").fetchone()
+            if cache_count and cache_count["cnt"] == 0:
+                try:
+                    from backend.cron import recompute_fingerprints_and_features_for_last_180_days
+                    recompute_fingerprints_and_features_for_last_180_days()
+                except Exception:
+                    pass
+
             row = conn.execute(
                 """SELECT n_trades, wins, win_rate, wilson_lower, wilson_upper, avg_pnl 
                    FROM signal_performance_cache WHERE fingerprint = ?""",
@@ -194,25 +203,48 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None)
     if not cached:
         try:
             with get_db() as conn:
-                row = conn.execute(
+                # Query matches by fingerprint OR NULL fingerprints to check dynamically
+                rows = conn.execute(
                     """
-                    SELECT COUNT(*) as n,
-                           SUM(CASE WHEN pnl_5d_pct > 0 THEN 1 ELSE 0 END) as wins,
-                           AVG(pnl_5d_pct) as avg_pnl
+                    SELECT pnl_5d_pct, signal_fingerprint, triggered_signals, regime_at_entry
                     FROM (
-                        SELECT pnl_5d_pct, signal_fingerprint FROM paper_trades WHERE pnl_5d_pct IS NOT NULL
+                        SELECT pnl_5d_pct, signal_fingerprint, triggered_signals, regime_at_entry FROM paper_trades WHERE pnl_5d_pct IS NOT NULL
                         UNION ALL
-                        SELECT pnl_5d_pct, signal_fingerprint FROM shadow_trades WHERE pnl_5d_pct IS NOT NULL
+                        SELECT pnl_5d_pct, signal_fingerprint, triggered_signals, regime_at_entry FROM shadow_trades WHERE pnl_5d_pct IS NOT NULL
                     )
-                    WHERE signal_fingerprint = ?
+                    WHERE signal_fingerprint = ? OR signal_fingerprint IS NULL
                     """,
                     (fingerprint,),
-                ).fetchone()
-                if row and row["n"] > 0:
-                    n_trades = row["n"]
-                    wins = row["wins"] or 0
+                ).fetchall()
+                
+                n_trades = 0
+                wins = 0
+                sum_pnl = 0.0
+                
+                for r in rows:
+                    fp = r["signal_fingerprint"]
+                    if fp is None:
+                        trig = r["triggered_signals"]
+                        try:
+                            sig_list = json.loads(trig) if trig else []
+                        except Exception:
+                            sig_list = []
+                        if not isinstance(sig_list, list):
+                            sig_list = []
+                        sig_types = [s.get("type") for s in sig_list if isinstance(s, dict) and s.get("type")]
+                        reg = r["regime_at_entry"]
+                        fp = compute_fingerprint(sig_types, reg)
+                    
+                    if fp == fingerprint:
+                        n_trades += 1
+                        pnl = r["pnl_5d_pct"]
+                        if pnl > 0:
+                            wins += 1
+                        sum_pnl += pnl
+
+                if n_trades > 0:
                     win_rate = wins / n_trades
-                    avg_pnl = row["avg_pnl"] or 0.0
+                    avg_pnl = sum_pnl / n_trades
                     wilson_lower, wilson_upper = wilson_confidence_interval(wins, n_trades)
         except Exception:
             pass
@@ -271,25 +303,46 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None)
                     low_confidence = True
                     try:
                         with get_db() as conn:
-                            pnl_row = conn.execute(
+                            pnl_rows = conn.execute(
                                 """
-                                SELECT 
-                                    AVG(CASE WHEN pnl_5d_pct > 0 THEN pnl_5d_pct END) as avg_win,
-                                    AVG(CASE WHEN pnl_5d_pct < 0 THEN pnl_5d_pct END) as avg_loss
+                                SELECT pnl_5d_pct, signal_fingerprint, triggered_signals, regime_at_entry
                                 FROM (
-                                    SELECT pnl_5d_pct, signal_fingerprint FROM paper_trades WHERE pnl_5d_pct IS NOT NULL
+                                    SELECT pnl_5d_pct, signal_fingerprint, triggered_signals, regime_at_entry FROM paper_trades WHERE pnl_5d_pct IS NOT NULL
                                     UNION ALL
-                                    SELECT pnl_5d_pct, signal_fingerprint FROM shadow_trades WHERE pnl_5d_pct IS NOT NULL
+                                    SELECT pnl_5d_pct, signal_fingerprint, triggered_signals, regime_at_entry FROM shadow_trades WHERE pnl_5d_pct IS NOT NULL
                                 )
-                                WHERE signal_fingerprint = ?
+                                WHERE signal_fingerprint = ? OR signal_fingerprint IS NULL
                                 """,
                                 (fingerprint,),
-                            ).fetchone()
-                            if pnl_row:
-                                avg_win = pnl_row["avg_win"] if pnl_row["avg_win"] is not None else 0.0
-                                avg_loss = pnl_row["avg_loss"] if pnl_row["avg_loss"] is not None else 0.0
-                                if avg_win > 0.0 and avg_loss < 0.0:
-                                    low_confidence = False
+                            ).fetchall()
+                            
+                            wins_list = []
+                            losses_list = []
+                            for r in pnl_rows:
+                                fp = r["signal_fingerprint"]
+                                if fp is None:
+                                    trig = r["triggered_signals"]
+                                    try:
+                                        sig_list = json.loads(trig) if trig else []
+                                    except Exception:
+                                        sig_list = []
+                                    if not isinstance(sig_list, list):
+                                        sig_list = []
+                                    sig_types = [s.get("type") for s in sig_list if isinstance(s, dict) and s.get("type")]
+                                    reg = r["regime_at_entry"]
+                                    fp = compute_fingerprint(sig_types, reg)
+                                
+                                if fp == fingerprint:
+                                    pnl = r["pnl_5d_pct"]
+                                    if pnl > 0:
+                                        wins_list.append(pnl)
+                                    elif pnl < 0:
+                                        losses_list.append(pnl)
+                            
+                            avg_win = sum(wins_list) / len(wins_list) if wins_list else 0.0
+                            avg_loss = sum(losses_list) / len(losses_list) if losses_list else 0.0
+                            if avg_win > 0.0 and avg_loss < 0.0:
+                                low_confidence = False
                     except Exception:
                         pass
 

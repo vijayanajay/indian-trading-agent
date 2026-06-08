@@ -488,4 +488,111 @@ def test_position_size_migration():
     assert results["M5"] == 15.0
 
 
+def test_get_honest_assessment_empty_cache_populated_trades():
+    """Verify that when cache is empty but trades exist (possibly with NULL fingerprints),
+    get_honest_assessment primes/backfills the cache synchronously, and resolves correctly.
+    """
+    import json
+    
+    # 1. Clear everything
+    with get_db() as conn:
+        conn.execute("DELETE FROM paper_trades")
+        conn.execute("DELETE FROM shadow_trades")
+        conn.execute("DELETE FROM signal_performance_cache")
+    
+    signals = [{"type": "Breakout (Volume Confirmed)"}, {"type": "Strong Uptrend"}]
+    regime = "BULL"
+    expected_fp = compute_fingerprint(["Breakout (Volume Confirmed)", "Strong Uptrend"], regime)
+    
+    # 2. Insert 15 trades with NULL signal_fingerprint
+    with get_db() as conn:
+        for i in range(10):
+            conn.execute(
+                """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, regime_at_entry, pnl_5d_pct, signal_fingerprint)
+                   VALUES (?, ?, ?, ?, ?, NULL)""",
+                (f"P_{i}", 100.0, json.dumps(signals), regime, 1.5 if i % 2 == 0 else -1.0)
+            )
+        for i in range(5):
+            conn.execute(
+                """INSERT INTO shadow_trades (ticker, signal_date, entry_price, triggered_signals, regime_at_entry, pnl_5d_pct, signal_fingerprint)
+                   VALUES (?, ?, ?, ?, ?, ?, NULL)""",
+                (f"S_{i}", "2026-06-01", 100.0, json.dumps(signals), regime, 2.0)
+            )
+            
+    # Verify cache is empty before calling get_honest_assessment
+    with get_db() as conn:
+        row = conn.execute("SELECT COUNT(*) as cnt FROM signal_performance_cache").fetchone()
+        assert row["cnt"] == 0
+        
+    # 3. Call get_honest_assessment
+    # This should trigger synchronous backfill, populating the cache and fingerprints
+    assessment = get_honest_assessment(signals, 4.5, regime)
+    
+    # Verify cache was indeed populated
+    with get_db() as conn:
+        row = conn.execute("SELECT COUNT(*) as cnt FROM signal_performance_cache").fetchone()
+        assert row["cnt"] > 0
+        
+        # Verify the fingerprints in the database were backfilled
+        paper_fps = conn.execute("SELECT DISTINCT signal_fingerprint FROM paper_trades").fetchall()
+        assert len(paper_fps) == 1
+        assert paper_fps[0]["signal_fingerprint"] == expected_fp
+        
+        shadow_fps = conn.execute("SELECT DISTINCT signal_fingerprint FROM shadow_trades").fetchall()
+        assert len(shadow_fps) == 1
+        assert shadow_fps[0]["signal_fingerprint"] == expected_fp
+        
+    # Verify assessment details (15 trades -> EMERGING tier)
+    assert assessment["n_trades"] == 15
+    assert assessment["tier"] == "EMERGING"
+    assert assessment["suggested_position_size_pct"] == 7.5
+
+
+def test_fallback_query_resolves_null_fingerprints():
+    """Verify that if the cache is populated (not empty), but has no entry for our fingerprint,
+    the fallback query successfully resolves trades with NULL fingerprints in Python.
+    """
+    import json
+    
+    # 1. Clear everything
+    with get_db() as conn:
+        conn.execute("DELETE FROM paper_trades")
+        conn.execute("DELETE FROM shadow_trades")
+        conn.execute("DELETE FROM signal_performance_cache")
+        
+        # Populate cache with a dummy entry so cache count > 0 (backfill won't run)
+        conn.execute(
+            """INSERT INTO signal_performance_cache (fingerprint, n_trades, wins, win_rate, wilson_lower, wilson_upper, avg_pnl)
+               VALUES ('dummy_fp', 5, 3, 0.6, 0.3, 0.8, 1.0)"""
+        )
+        
+    signals = [{"type": "Special Signal"}]
+    regime = "BEAR"
+    expected_fp = compute_fingerprint(["Special Signal"], regime)
+    
+    # 2. Insert 12 trades with NULL fingerprints matching the signals
+    with get_db() as conn:
+        for i in range(8):
+            conn.execute(
+                """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, regime_at_entry, pnl_5d_pct, signal_fingerprint)
+                   VALUES (?, ?, ?, ?, ?, NULL)""",
+                (f"P_S_{i}", 100.0, json.dumps(signals), regime, 1.5 if i % 2 == 0 else -1.0)
+            )
+        for i in range(4):
+            conn.execute(
+                """INSERT INTO shadow_trades (ticker, signal_date, entry_price, triggered_signals, regime_at_entry, pnl_5d_pct, signal_fingerprint)
+                   VALUES (?, ?, ?, ?, ?, ?, NULL)""",
+                (f"S_S_{i}", "2026-06-01", 100.0, json.dumps(signals), regime, 2.0)
+            )
+            
+    # Call get_honest_assessment. It should hit fallback query (since no cache entry for expected_fp)
+    # and find all 12 trades with NULL fingerprints by reconstructing them in Python.
+    assessment = get_honest_assessment(signals, 3.5, regime)
+    
+    assert assessment["n_trades"] == 12
+    assert assessment["tier"] == "EMERGING"
+    assert assessment["suggested_position_size_pct"] == 7.5
+
+
+
 
