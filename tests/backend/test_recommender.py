@@ -171,3 +171,67 @@ def test_gap_signals(mock_ticker):
     gap_signals = [s for s in result["signals"] if "Gap Down (Unfilled)" in s["type"]]
     assert len(gap_signals) == 1
     assert gap_signals[0]["direction"] == "FADE"
+
+
+def test_filter_adjustments_merged_and_hashed():
+    # Test that recommend() correctly applies filters, merges adjustments into signals,
+    # and recomputes get_honest_assessment with the merged signals.
+    from backend.recommender import recommend
+    
+    with patch("backend.recommender.UNIVERSES") as mock_universes, \
+         patch("backend.recommender._refresh_active_weights") as mock_refresh, \
+         patch("backend.recommender.ThreadPoolExecutor") as mock_executor, \
+         patch("backend.fii_dii.get_market_bias") as mock_bias, \
+         patch("backend.shadow_trades.record_shadow_trades_from_recommendations") as mock_shadow:
+         
+        mock_universes.get.return_value = ["AAPL"]
+        mock_bias.return_value = {
+            "bias": "BULLISH",
+            "score_adjustment": 1.5,
+            "reasoning": "FII buying",
+            "today_fii_net": 2500,
+            "today_dii_net": 500,
+        }
+        
+        # Mock analyze_stock to return a mock pick
+        mock_future = MagicMock()
+        mock_future.result.return_value = {
+            "ticker": "AAPL",
+            "symbol": "AAPL.NS",
+            "price": 150.0,
+            "change_pct": 1.2,
+            "rsi": 45.0,
+            "score": 3.0,
+            "direction": "BUY",
+            "confidence": "HIGH",
+            "signals": [{"type": "Strong Uptrend", "direction": "BULLISH", "value": "Price > 50 SMA > 200 SMA", "weight": 1.0}],
+            "filter_adjustments": [],
+            "bullish_signal_count": 2,
+            "bearish_signal_count": 0,
+            "near_support": 145.0,
+            "near_resistance": 155.0,
+        }
+        
+        mock_executor_instance = MagicMock()
+        with patch("backend.recommender.as_completed", return_value=[mock_future]):
+            mock_executor.return_value.__enter__.return_value = mock_executor_instance
+            
+            res = recommend(universe="test", apply_market_bias=True, apply_event_filter=False, apply_concentration_check=False)
+            
+            assert len(res["strong_buys"]) == 1 or len(res["buys"]) == 1
+            pick = res["strong_buys"][0] if res["strong_buys"] else res["buys"][0]
+            
+            # The filter adjustment should be merged into signals
+            signal_types = [s["type"] for s in pick["signals"]]
+            assert "FII/DII Flow (BULLISH)" in signal_types
+            assert "Strong Uptrend" in signal_types
+            
+            # The filter_adjustments array should be cleared to prevent UI duplication
+            assert len(pick["filter_adjustments"]) == 0
+            
+            # The honest assessment fingerprint should contain the FII flow signal
+            fp = pick["honest_assessment"]["fingerprint"]
+            from backend.honest_assessment import compute_fingerprint
+            expected_fp = compute_fingerprint(["FII/DII Flow (BULLISH)", "Strong Uptrend"], "UNKNOWN")
+            assert fp == expected_fp
+

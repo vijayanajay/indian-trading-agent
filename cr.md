@@ -52,5 +52,7 @@
 - Modified direct database fallback queries in `get_honest_assessment()` to dynamically match trades with `NULL` fingerprints in Python by parsing their JSON signals and entry regimes, preventing new signals from degrading to the conservative `EXPLORATORY` tier due to stale/missing migration fingerprints.
 - Added comprehensive unit tests in `test_honest_assessment.py` verifying synchronous cache backfill on empty tables and Python-based dynamic resolution of `NULL` fingerprints in fallback queries.
 - Fixed gap-up unfilled signal asymmetry in `backend/recommender.py` and `backend/performance.py` to unconditionally emit a bearish fade signal (`gap_up_open`) or short trade for all unfilled gap-up days (including green-candle days), matching the scanner and backtest simulator logic.
-
-
+- Integrated FII/DII flow, event risk, and sector concentration filter adjustments into the honest assessment fingerprint calculation.
+- Modified recommender filter functions (`_apply_market_bias`, `_apply_event_filter`, `_apply_concentration_filter`) in `backend/recommender.py` to call `get_honest_assessment` with the combined list of core technical signals and filter adjustments.
+- Updated `recommend()` in `backend/recommender.py` to merge the applied filter adjustments into the main `signals` list and clear the `filter_adjustments` array before returning, ensuring database insertion of paper/shadow trades and background cron jobs use the correct combined signals for fingerprint generation, while preventing duplicates in the frontend UI.
+- Added a new unit test `test_filter_adjustments_merged_and_hashed` in `tests/backend/test_recommender.py` to verify the signal merging and fingerprint hashing behavior.
