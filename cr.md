@@ -87,4 +87,5 @@
 - Updated the Next.js frontend Simulation page (`frontend/src/app/simulation/page.tsx`) to render `"HOLD"` signals, color code them as gray, and properly exclude them from overall win rate calculations when reconstructing loaded runs.
 - Documented the model selection/survivorship bias on the Confidence Calibration page (`frontend/src/app/confidence-calibration/page.tsx`) to explain why win probabilities are conditional on non-neutral recommendations.
 - Added corresponding unit tests in `tests/backend/test_simulation.py` (`test_simulation_neutral_hold_signal`) to verify mapping and tracking of neutral signals.
-
+- Fixed the Kelly Criterion fallback in `backend/honest_assessment.py::get_honest_assessment()` by forcing `kelly_pct = 0.0` and `suggested_position_size_pct = 0.0` with a `"DO NOT TRADE (insufficient win/loss data for Kelly sizing)"` display message when `low_confidence = True`, preventing position sizing recommendations on trades with insufficient historical data.
+- Updated corresponding unit tests in `tests/backend/test_honest_assessment.py` to assert the correct Kelly behavior under both low confidence and high confidence calibrated scenarios.

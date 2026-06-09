@@ -385,34 +385,36 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None)
                         pass
 
                     if has_calibrated_model:
-                        b = 1.0
-                        if not low_confidence:
-                            b = avg_win / abs(avg_loss)
-                        
-                        # Full Kelly formula
-                        q = 1.0 - p
-                        k_frac = (p * b - q) / b
-                        
-                        if k_frac < 0.0:
+                        if low_confidence:
                             kelly_pct = 0.0
                             suggested_size = 0.0
-                            message = "DO NOT TRADE"
+                            message = "DO NOT TRADE (insufficient win/loss data for Kelly sizing)"
                         else:
-                            kelly_pct = round(k_frac * 100, 1)
-                            if kelly_pct > 15.0:
-                                kelly_pct = 15.0
+                            b = avg_win / abs(avg_loss)
                             
-                            suggested_size = max(1.0, kelly_pct)
+                            # Full Kelly formula
+                            q = 1.0 - p
+                            k_frac = (p * b - q) / b
                             
-                            # Check portfolio drawdown ceiling
-                            drawdown = get_portfolio_drawdown()
-                            if drawdown > 10.0:
+                            if k_frac < 0.0:
                                 kelly_pct = 0.0
                                 suggested_size = 0.0
-                                message = f"DO NOT TRADE (portfolio drawdown > 10%)"
+                                message = "DO NOT TRADE"
                             else:
-                                confidence_str = " (low confidence)" if low_confidence else ""
-                                message = f"Model: {probability:.0f}% probability — Brier: {br:.2f} — Kelly: {kelly_pct:.1f}%{confidence_str}"
+                                kelly_pct = round(k_frac * 100, 1)
+                                if kelly_pct > 15.0:
+                                    kelly_pct = 15.0
+                                
+                                suggested_size = max(1.0, kelly_pct)
+                                
+                                # Check portfolio drawdown ceiling
+                                drawdown = get_portfolio_drawdown()
+                                if drawdown > 10.0:
+                                    kelly_pct = 0.0
+                                    suggested_size = 0.0
+                                    message = f"DO NOT TRADE (portfolio drawdown > 10%)"
+                                else:
+                                    message = f"Model: {probability:.0f}% probability — Brier: {br:.2f} — Kelly: {kelly_pct:.1f}%"
                         
                         tier = "CALIBRATED"
             except Exception:

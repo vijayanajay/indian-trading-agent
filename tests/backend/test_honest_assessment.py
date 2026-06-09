@@ -158,10 +158,34 @@ def test_honest_assessment_tiers():
         backend.signal_model._MODEL_CACHE = None
     
     # Tier 4: Calibrated (n >= 100 + calibrated model + Brier < 0.20)
+    # Test 4.1: Low confidence fallback (no win/loss trades yet)
     assessment = get_honest_assessment(signals, score, regime)
     assert assessment["tier"] == "CALIBRATED"
     assert assessment["probability"] is not None
-    assert assessment["kelly_pct"] is not None
+    assert assessment["low_confidence"] is True
+    assert assessment["kelly_pct"] == 0.0
+    assert assessment["suggested_position_size_pct"] == 0.0
+    assert assessment["display_message"] == "DO NOT TRADE (insufficient win/loss data for Kelly sizing)"
+
+    # Insert a win and a loss to establish high confidence
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, regime_at_entry, pnl_5d_pct, signal_fingerprint)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            ("T1", 100.0, "[]", "BULL", 2.0, fingerprint)
+        )
+        conn.execute(
+            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, regime_at_entry, pnl_5d_pct, signal_fingerprint)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            ("T2", 100.0, "[]", "BULL", -1.0, fingerprint)
+        )
+
+    # Test 4.2: High confidence Calibrated
+    assessment = get_honest_assessment(signals, score, regime)
+    assert assessment["tier"] == "CALIBRATED"
+    assert assessment["probability"] is not None
+    assert assessment["low_confidence"] is False
+    assert assessment["kelly_pct"] > 0.0
     assert assessment["suggested_position_size_pct"] == assessment["kelly_pct"]
     assert "Model:" in assessment["display_message"]
     
@@ -307,13 +331,13 @@ def test_kelly_criterion_replacement():
         conn.execute("DELETE FROM paper_trades")
         conn.execute("DELETE FROM shadow_trades")
         
-    # Test 1.1: Default payoff ratio b = 1.0 (no trades in DB yet)
+    # Test 1.1: Default payoff ratio (no trades in DB yet -> low confidence -> Kelly sizing forced to 0.0)
     assessment = get_honest_assessment(signals, score, regime)
     assert assessment["tier"] == "CALIBRATED"
     assert assessment["low_confidence"] is True
-    # logit = -1.5 + 1.0 + 0.75 + 0.5 = 0.75 => p = 0.679. b = 1.0. k_frac = 0.679 - 0.321 = 0.358 => 35.8% capped at 15%
-    assert assessment["kelly_pct"] == 15.0
-    assert "(low confidence)" in assessment["display_message"]
+    assert assessment["kelly_pct"] == 0.0
+    assert assessment["suggested_position_size_pct"] == 0.0
+    assert assessment["display_message"] == "DO NOT TRADE (insufficient win/loss data for Kelly sizing)"
     
     # Test 1.2: Insert trades with average win 4.0% and average loss -2.0%
     # b = 4.0 / 2.0 = 2.0.
@@ -373,6 +397,18 @@ def test_kelly_criterion_replacement():
     # T2 alloc = 9,100. PnL -50% => returned 4,550. Equity = 81,900 + 4,550 = 86,450. Drawdown = 13.55%.
     with get_db() as conn:
         conn.execute("DELETE FROM paper_trades")
+        conn.execute("DELETE FROM shadow_trades")
+        # Insert 1 win and 1 loss under shadow_trades so low_confidence is False
+        conn.execute(
+            """INSERT INTO shadow_trades (ticker, signal_date, entry_price, triggered_signals, regime_at_entry, pnl_5d_pct, signal_fingerprint)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            ("ST1", "2026-06-01", 100.0, "[]", "BULL", 4.0, fp)
+        )
+        conn.execute(
+            """INSERT INTO shadow_trades (ticker, signal_date, entry_price, triggered_signals, regime_at_entry, pnl_5d_pct, signal_fingerprint)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            ("ST2", "2026-06-02", 100.0, "[]", "BULL", -2.0, fp)
+        )
         conn.execute(
             """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_datetime, status, pnl_5d_pct, updated_at, position_size_pct)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
