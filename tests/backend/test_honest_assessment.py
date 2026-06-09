@@ -712,6 +712,39 @@ def test_honest_assessment_fallback_and_kelly_deduplication():
     assert assessment["kelly_pct"] == 15.0
 
 
+def test_portfolio_drawdown_with_unrealized_pnl():
+    """Verify that portfolio drawdown calculation incorporates unrealized P&L of open positions."""
+    from backend.honest_assessment import get_portfolio_drawdown
+
+    with get_db() as conn:
+        conn.execute("DELETE FROM paper_trades")
+
+    # WT1 (closed win): alloc 10% of 100k = 10k. P&L +20% => returned 12k. Equity = 102k.
+    # WT2 (active loss): position_size_pct = 10%. unrealized_pnl_pct = -30.0.
+    # Current Equity before WT2 entry: 102k.
+    # WT2 entry alloc: 102k * 10% = 10.2k.
+    # Cash remaining: 102k - 10.2k = 91.8k.
+    # WT2 marked-to-market value: 10.2k * (1 - 0.3) = 7.14k.
+    # Total marked-to-market equity: 91.8k + 7.14k = 98.94k.
+    # Peak equity: 102k.
+    # Drawdown: (102k - 98.94k) / 102k * 100 = 3.0%.
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_datetime, status, pnl_5d_pct, updated_at, position_size_pct, unrealized_pnl_pct)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("WT1", 100.0, "[]", "2026-06-01 10:00:00", "expired", 20.0, "2026-06-02 10:00:00", 10.0, 0.0)
+        )
+        conn.execute(
+            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_datetime, status, pnl_5d_pct, updated_at, position_size_pct, unrealized_pnl_pct)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("WT2", 100.0, "[]", "2026-06-03 10:00:00", "active", None, None, 10.0, -30.0)
+        )
+
+    dd = get_portfolio_drawdown()
+    assert abs(dd - 3.0) < 0.01
+
+
+
 
 
 

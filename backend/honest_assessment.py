@@ -42,7 +42,7 @@ def get_portfolio_drawdown() -> float:
             rows = conn.execute(
                 """SELECT id, ticker, entry_datetime, entry_date, status, notes, 
                           pnl_1d_pct, pnl_3d_pct, pnl_5d_pct, pnl_10d_pct, updated_at,
-                          position_size_pct
+                          position_size_pct, unrealized_pnl_pct
                    FROM paper_trades"""
             ).fetchall()
         if not rows:
@@ -63,10 +63,13 @@ def get_portfolio_drawdown() -> float:
                     entry_dt = datetime.min
             
             status = r["status"]
+            unrealized_pnl = r["unrealized_pnl_pct"] if r["unrealized_pnl_pct"] is not None else 0.0
             
             # Determine P&L
             pnl = None
-            if status == "manually_closed" and r["notes"]:
+            if status == "active":
+                pnl = unrealized_pnl
+            elif status == "manually_closed" and r["notes"]:
                 match = re.search(r"P&L:\s*([\-\d\.]+)%", r["notes"])
                 if match:
                     try:
@@ -107,7 +110,9 @@ def get_portfolio_drawdown() -> float:
                 "entry": entry_dt,
                 "exit": exit_dt,
                 "pnl": pnl,
-                "position_size_pct": pos_size
+                "position_size_pct": pos_size,
+                "unrealized_pnl_pct": unrealized_pnl,
+                "status": status
             })
             
         # Sort events chronologically. Exit events before entry events at the same timestamp.
@@ -122,10 +127,19 @@ def get_portfolio_drawdown() -> float:
         cash = equity
         peak_equity = equity
         
+        def get_open_value(open_pos):
+            val = 0.0
+            for o_idx, o_alloc in open_pos.items():
+                if trades[o_idx]["status"] == "active":
+                    val += o_alloc * (1.0 + trades[o_idx]["unrealized_pnl_pct"] / 100.0)
+                else:
+                    val += o_alloc
+            return val
+
         open_positions = {}
         for evt_time, evt_type, idx in events:
             if evt_type == "entry":
-                current_equity = cash + sum(open_positions.values())
+                current_equity = cash + get_open_value(open_positions)
                 alloc = current_equity * (trades[idx]["position_size_pct"] / 100.0)
                 cash -= alloc
                 open_positions[idx] = alloc
@@ -136,11 +150,11 @@ def get_portfolio_drawdown() -> float:
                     returned = alloc * (1.0 + pnl_pct / 100.0)
                     cash += returned
                     
-            current_equity = cash + sum(open_positions.values())
+            current_equity = cash + get_open_value(open_positions)
             if current_equity > peak_equity:
                 peak_equity = current_equity
                 
-        current_equity = cash + sum(open_positions.values())
+        current_equity = cash + get_open_value(open_positions)
         if peak_equity <= 0:
             return 0.0
         drawdown = (peak_equity - current_equity) / peak_equity * 100.0

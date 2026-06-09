@@ -116,6 +116,7 @@ def close_paper_trade(trade_id: int) -> dict:
         conn.execute(
             """UPDATE paper_trades SET
                 status = 'manually_closed',
+                unrealized_pnl_pct = 0.0,
                 notes = COALESCE(notes, '') || '\nClosed at Rs.' || ? || ' on ' || date('now') || '. P&L: ' || ? || '%',
                 updated_at = datetime('now')
                WHERE id = ?""",
@@ -191,6 +192,19 @@ def refresh_paper_trade_prices(trade_id: int = None) -> dict:
                     price = _price_n_days_later(symbol, entry_date, days)
                     if price:
                         prices[f"price_{horizon_label}"] = price
+
+        # Fetch current price for marking to market
+        try:
+            t = yf.Ticker(symbol)
+            hist = t.history(period="1d")
+            if not hist.empty:
+                current_price = float(hist.iloc[-1]["Close"])
+                entry_price = trade["entry_price"]
+                direction = trade.get("direction", "LONG")
+                multiplier = 1 if direction == "LONG" else -1
+                prices["unrealized_pnl_pct"] = round(multiplier * (current_price - entry_price) / entry_price * 100, 2)
+        except Exception:
+            pass
 
         if prices:
             update_paper_trade_prices(trade["id"], prices)

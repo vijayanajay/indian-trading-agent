@@ -114,7 +114,8 @@ def ensure_db():
                 regime_at_entry TEXT,
                 fii_flow_at_entry TEXT,
                 volatility_at_entry REAL,
-                position_size_pct REAL
+                position_size_pct REAL,
+                unrealized_pnl_pct REAL DEFAULT 0.0
             );
 
             -- Daily Verdict snapshots — measures whether the verdict actually predicted Nifty's move
@@ -541,6 +542,7 @@ def _migrate_paper_trades_columns():
             ("fii_flow_at_entry", "TEXT"),
             ("volatility_at_entry", "REAL"),
             ("position_size_pct", "REAL"),
+            ("unrealized_pnl_pct", "REAL DEFAULT 0.0"),
         ]:
             if col not in existing_paper:
                 try:
@@ -667,10 +669,16 @@ def update_paper_trade_prices(trade_id: int, prices: dict):
 
 def update_paper_trade_status(trade_id: int, status: str):
     with get_db() as conn:
-        conn.execute(
-            "UPDATE paper_trades SET status = ?, updated_at = datetime('now') WHERE id = ?",
-            (status, trade_id),
-        )
+        if status != "active":
+            conn.execute(
+                "UPDATE paper_trades SET status = ?, unrealized_pnl_pct = 0.0, updated_at = datetime('now') WHERE id = ?",
+                (status, trade_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE paper_trades SET status = ?, updated_at = datetime('now') WHERE id = ?",
+                (status, trade_id),
+            )
 
 
 def delete_paper_trade(trade_id: int):

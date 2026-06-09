@@ -64,3 +64,5 @@
 - Fixed discrepancy in recommender event filter by extending the triggers to look ahead (RBI policy check changed to ≤1 day, US Fed FOMC check changed to ≤2 days) to align with daily verdict logic and documentation, and added test coverage.
 - Fixed double-counting of trades in `backend/honest_assessment.py::get_honest_assessment()` by introducing deterministic Python deduplication for both direct database fallback queries and Kelly stats estimation, prioritizing paper trades over shadow trades.
 - Added comprehensive unit test in `tests/backend/test_honest_assessment.py` to verify the deduplication of duplicate paper and shadow trades in both fallback and Kelly calculation paths.
+- Fixed the portfolio drawdown calculation (`get_portfolio_drawdown()`) to incorporate the dynamic, marked-to-market unrealized P&L of active open positions, preventing drawdowns from being systematically understated during losing streaks and ensuring the >10% drawdown guardrail triggers correctly. Added corresponding database columns and updated the price refresh cycle to calculate and persist `unrealized_pnl_pct`.
+
