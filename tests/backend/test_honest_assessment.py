@@ -862,6 +862,59 @@ def test_portfolio_drawdown_null_pnl():
     assert abs(dd - 9.75) < 0.01
 
 
+def test_cron_cache_rebuild_deduplication():
+    """Verify that the background cron cache rebuild deduplicates duplicate paper and shadow trades."""
+    from backend.cron import recompute_fingerprints_and_features_for_last_180_days
+    import json
+
+    with get_db() as conn:
+        conn.execute("DELETE FROM paper_trades")
+        conn.execute("DELETE FROM shadow_trades")
+        conn.execute("DELETE FROM signal_performance_cache")
+
+    signals = [{"type": "Special Signal"}]
+    regime = "BEAR"
+    expected_fp = compute_fingerprint(["Special Signal"], regime)
+
+    # Insert 10 unique ticker+date combinations in paper_trades
+    with get_db() as conn:
+        for i in range(10):
+            conn.execute(
+                """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_date, entry_datetime, regime_at_entry, pnl_5d_pct, signal_fingerprint)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                ("REL", 100.0, json.dumps(signals), f"2026-06-{i:02d}", f"2026-06-{i:02d} 10:00:00", regime, 2.0, expected_fp)
+            )
+        # Insert 5 shadow trades with same ticker and dates as the first 5 paper trades
+        # These shadow trades have a negative pnl_5d_pct (e.g. -5.0) which should be ignored if paper is prioritized.
+        for i in range(5):
+            conn.execute(
+                """INSERT INTO shadow_trades (ticker, signal_date, entry_price, triggered_signals, regime_at_entry, pnl_5d_pct, signal_fingerprint)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                ("REL", f"2026-06-{i:02d}", 100.0, json.dumps(signals), regime, -5.0, expected_fp)
+            )
+
+    # Run the cache rebuild
+    recompute_fingerprints_and_features_for_last_180_days()
+
+    # Query the cache entry
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT n_trades, wins, win_rate, avg_pnl FROM signal_performance_cache WHERE fingerprint = ?",
+            (expected_fp,),
+        ).fetchone()
+
+    assert row is not None
+    # If deduplication succeeded:
+    # - n_trades = 10
+    # - wins = 10 (since all paper trades have pnl = 2.0 > 0)
+    # - win_rate = 1.0
+    # - avg_pnl = 2.0
+    assert row["n_trades"] == 10
+    assert row["wins"] == 10
+    assert row["win_rate"] == 1.0
+    assert row["avg_pnl"] == 2.0
+
+
 
 
 

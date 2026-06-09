@@ -1,3 +1,4 @@
+- Fixed double-counting of trades in `backend/cron.py::recompute_fingerprints_and_features_for_last_180_days()` by introducing deterministic Python deduplication of duplicate paper and shadow trades on `(ticker, entry_date)` (prioritizing paper trades) during the cache rebuild, resolving the data-tier classification inconsistency between cached and fallback paths.
 - Implemented standard Wilder's RSI calculation with exponential smoothing in recommender.py and simulation.py.
 - Replaced the naive simple-average 15-day RSI lookback logic with convergence on the full closes history.
 - Fixed the array slicing bug in _compute_rsi where it was slicing from the start of the series rather than the end.
@@ -91,3 +92,9 @@
 - Updated corresponding unit tests in `tests/backend/test_honest_assessment.py` to assert the correct Kelly behavior under both low confidence and high confidence calibrated scenarios.
 - Fixed a date skip loop bug in the historical backtester (`backend/simulation.py::run_recommender_backtest()`) by replacing the redundant inner `for` loop and incorrect `if-else` alignment with direct calendar date advancement (`timedelta(days=interval_days)`), ensuring backtests sample dates at the correct density without skipping extra calendar days.
 - Added a new unit test `test_run_recommender_backtest_dates` in `tests/backend/test_simulation.py` to verify backtest date generation logic.
+
+## Rejected Changes
+
+- **Shadow Trade P&L Inverted for Bearish Signals**: Assumed that P&L calculation is inverted for bearish shadow trades. This was rejected because the shadow trade recorder currently only tracks `"STRONG BUY"` and `"BUY"` recommendations in the database. Consequently, no bearish shadow trades are stored in production, making the current P&L calculation correct for all recorded entries, and the proposed fix redundant under the user's long-only trading architecture.
+
+

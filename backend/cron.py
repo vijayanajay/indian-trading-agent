@@ -167,31 +167,40 @@ def recompute_fingerprints_and_features_for_last_180_days() -> dict:
     cache_entries = 0
     try:
         with get_db() as conn:
-            # Aggregate all closed paper + shadow trades
+            # Fetch all closed paper + shadow trades with non-null fingerprints
             rows = conn.execute(
                 """
-                SELECT signal_fingerprint,
-                       COUNT(*) as n,
-                       SUM(CASE WHEN pnl_5d_pct > 0 THEN 1 ELSE 0 END) as wins,
-                       AVG(pnl_5d_pct) as avg_pnl
-                FROM (
-                    SELECT pnl_5d_pct, signal_fingerprint FROM paper_trades WHERE pnl_5d_pct IS NOT NULL
-                    UNION ALL
-                    SELECT pnl_5d_pct, signal_fingerprint FROM shadow_trades WHERE pnl_5d_pct IS NOT NULL
-                )
-                WHERE signal_fingerprint IS NOT NULL
-                GROUP BY signal_fingerprint
+                SELECT 'paper' as source, ticker, entry_date, pnl_5d_pct, signal_fingerprint
+                FROM paper_trades
+                WHERE pnl_5d_pct IS NOT NULL AND signal_fingerprint IS NOT NULL
+                UNION ALL
+                SELECT 'shadow' as source, ticker, signal_date as entry_date, pnl_5d_pct, signal_fingerprint
+                FROM shadow_trades
+                WHERE pnl_5d_pct IS NOT NULL AND signal_fingerprint IS NOT NULL
                 """
             ).fetchall()
 
+            # Deduplicate by (ticker, entry_date), prioritizing paper trades
+            unique_trades = {}
+            for r in rows:
+                key = (r["ticker"], r["entry_date"])
+                if key not in unique_trades or r["source"] == "paper":
+                    unique_trades[key] = r
+
+            # Group by signal_fingerprint
+            from collections import defaultdict
+            fingerprint_groups = defaultdict(list)
+            for t in unique_trades.values():
+                fp = t["signal_fingerprint"]
+                fingerprint_groups[fp].append(t["pnl_5d_pct"])
+
             conn.execute("DELETE FROM signal_performance_cache")
             
-            for r in rows:
-                fp = r["signal_fingerprint"]
-                n = r["n"]
-                w = r["wins"] or 0
-                wr = w / n
-                avg_p = r["avg_pnl"] or 0.0
+            for fp, pnls in fingerprint_groups.items():
+                n = len(pnls)
+                w = sum(1 for p in pnls if p > 0)
+                wr = w / n if n > 0 else 0.0
+                avg_p = sum(pnls) / n if n > 0 else 0.0
                 low, high = wilson_confidence_interval(w, n)
                 
                 conn.execute(
