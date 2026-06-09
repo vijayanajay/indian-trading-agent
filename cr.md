@@ -74,4 +74,7 @@
 - Added a new unit test `test_simulation_regime_weights` in `tests/backend/test_simulation.py` to verify that custom/regime-specific weights are fetched and used in backtests, and added mocks to prevent external network calls during testing.
 - Implemented sector-aware event penalties in `backend/calendar_data.py::get_event_filter_for_ticker()` to apply full risk penalties to sensitive sectors (RBI Policy for Banks/Finance, Fed FOMC for IT/Pharma, Union Budget for Auto/FMCG/Energy/Realty/Metal) and a reduced penalty (30% of base value) to other sectors based on market beta.
 - Updated unit test coverage in `tests/backend/test_recommender.py::test_get_event_filter_for_ticker()` to verify correct scaling of penalties for sensitive vs. non-sensitive stocks under rate policy, Fed, and Budget events.
+- Fixed the sector concentration checker in `backend/concentration.py` to use the actual `position_size_pct` from paper trades when available, instead of assuming a hardcoded 10% capital allocation per position.
+- Updated `get_open_positions()` to pass the `position_size_pct` attribute of paper trades, allowing `get_sector_allocation()` to compute exact exposure and prevent unintended breaches of the 30% sector cap or the 3-position limit.
+- Created unit tests in `tests/backend/test_concentration.py` to verify the new dynamic position size-based concentration value calculation and its fallback logic.
 

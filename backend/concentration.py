@@ -55,6 +55,7 @@ def get_open_positions() -> list[dict]:
             "entry_date": pt.get("entry_date"),
             "source": "paper_trade",
             "strategy": pt.get("strategy"),
+            "position_size_pct": pt.get("position_size_pct"),
         })
 
     # Real analyses with open status
@@ -95,10 +96,12 @@ def get_sector_allocation(total_capital: float = 500000) -> dict:
 
     for pos in positions:
         sector = pos.get("sector", "Other")
-        # Position value approximation — need shares info or just count positions
-        # For simplicity, equal-weight assumption: each position = total_capital / max_positions
-        # In practice, this would integrate with Kite real position values
-        position_value = pos.get("position_value") or (total_capital / 10)  # rough estimate
+        # Position value approximation — use actual position_size_pct if available, fallback to 10%
+        actual_size_pct = pos.get("position_size_pct")
+        if actual_size_pct is not None:
+            position_value = total_capital * (actual_size_pct / 100.0)
+        else:
+            position_value = total_capital / 10  # fallback
         pos["position_value"] = position_value
         by_sector[sector].append(pos)
         total_value += position_value
