@@ -72,4 +72,6 @@
 - Replaced inline hardcoded signal weights in `_analyze_stock_at_date()` inside the backtest engine (`backend/simulation.py`) with active tuned/regime-specific weights fetched dynamically via `get_active_weights_for_regime(regime)`.
 - Updated the historical backtester in `backend/simulation.py` to pre-calculate and cache the market regime at each target date and pass it to individual stock analysis threads.
 - Added a new unit test `test_simulation_regime_weights` in `tests/backend/test_simulation.py` to verify that custom/regime-specific weights are fetched and used in backtests, and added mocks to prevent external network calls during testing.
+- Implemented sector-aware event penalties in `backend/calendar_data.py::get_event_filter_for_ticker()` to apply full risk penalties to sensitive sectors (RBI Policy for Banks/Finance, Fed FOMC for IT/Pharma, Union Budget for Auto/FMCG/Energy/Realty/Metal) and a reduced penalty (30% of base value) to other sectors based on market beta.
+- Updated unit test coverage in `tests/backend/test_recommender.py::test_get_event_filter_for_ticker()` to verify correct scaling of penalties for sensitive vs. non-sensitive stocks under rate policy, Fed, and Budget events.
 

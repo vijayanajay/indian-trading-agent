@@ -26,6 +26,7 @@ from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from backend.db import get_db
 from tradingagents.utils.ticker import normalize_ticker
+from backend.concentration import get_sector_for_ticker
 
 
 # ============================================================
@@ -319,6 +320,14 @@ def get_event_filter_for_ticker(ticker: str, days_ahead: int = 2) -> dict:
     score_adj = 0.0
     events_found = []
 
+    SECTOR_EVENT_SENSITIVITY = {
+        "RBI_POLICY": ["Banks", "Finance", "Financial Services", "NBFCs"],
+        "FOMC": ["IT", "Information Technology", "Pharma", "Chemicals"],
+        "BUDGET": ["Auto", "FMCG", "Energy", "Realty", "Metal", "Infrastructure"],
+    }
+
+    sector = get_sector_for_ticker(ticker)
+
     # Check stock-specific earnings
     earnings = get_earnings_in_range(today, end, tickers=[ticker])
     for e in earnings:
@@ -335,28 +344,45 @@ def get_event_filter_for_ticker(ticker: str, days_ahead: int = 2) -> dict:
         e_date = datetime.strptime(e["date"], "%Y-%m-%d").date()
         days_until = (e_date - today).days
 
+        penalty = 0.0
+        is_imminent = False
+
         if e["type"] == "BUDGET" and days_until <= 1:
             warnings.append(f"Budget in {days_until} day(s) — extreme volatility")
-            score_adj -= 2.0
+            penalty = 2.0
+            is_imminent = True
             events_found.append({**e, "days_until": days_until})
         elif e["type"] == "RBI_POLICY" and days_until <= 1:
             if days_until == 0:
                 warnings.append("RBI policy decision today")
             else:
                 warnings.append("RBI policy tomorrow")
-            score_adj -= 1.5
+            penalty = 1.5
+            is_imminent = True
             events_found.append({**e, "days_until": days_until})
         elif e["type"] == "FOMC" and days_until <= 2:
             if days_until == 0:
                 warnings.append("Fed FOMC decision today")
             else:
                 warnings.append(f"Fed FOMC in {days_until} day{'s' if days_until != 1 else ''}")
-            score_adj -= 1.0
+            penalty = 1.0
+            is_imminent = True
             events_found.append({**e, "days_until": days_until})
         elif e["type"] == "FNO_EXPIRY" and days_until == 0:
             warnings.append("F&O expiry today — high volatility")
-            score_adj -= 0.5
+            penalty = 0.5
+            is_imminent = True
             events_found.append({**e, "days_until": days_until})
+
+        if is_imminent:
+            if e["type"] in SECTOR_EVENT_SENSITIVITY:
+                sensitive_sectors = [s.upper() for s in SECTOR_EVENT_SENSITIVITY[e["type"]]]
+                if sector.upper() in sensitive_sectors:
+                    score_adj -= penalty
+                else:
+                    score_adj -= penalty * 0.3
+            else:
+                score_adj -= penalty
 
     return {
         "has_event": len(events_found) > 0,

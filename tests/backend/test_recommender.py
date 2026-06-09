@@ -246,27 +246,41 @@ def test_get_event_filter_for_ticker():
         mock_earnings.return_value = []
 
         # Test case 1: RBI policy tomorrow (1 day ahead)
+        # Sensitive sectors: Banks, Finance, Financial Services, NBFCs
         today = date.today()
         tomorrow = today + timedelta(days=1)
         mock_events.return_value = [
             {"type": "RBI_POLICY", "date": tomorrow.strftime("%Y-%m-%d"), "name": "RBI Monetary Policy Decision"}
         ]
 
-        res = get_event_filter_for_ticker("RELIANCE", days_ahead=2)
-        assert res["has_event"] is True
-        assert res["score_adjustment"] == -1.5
-        assert "RBI policy tomorrow" in res["warning"]
+        # RELIANCE (Energy) -> non-sensitive -> reduced penalty (0.3 * -1.5 = -0.45)
+        res_rel = get_event_filter_for_ticker("RELIANCE", days_ahead=2)
+        assert res_rel["has_event"] is True
+        assert res_rel["score_adjustment"] == -0.45
+        assert "RBI policy tomorrow" in res_rel["warning"]
+
+        # SBIN (Banks) -> sensitive -> full penalty (-1.5)
+        res_sbin = get_event_filter_for_ticker("SBIN", days_ahead=2)
+        assert res_sbin["has_event"] is True
+        assert res_sbin["score_adjustment"] == -1.5
 
         # Test case 2: FOMC in 2 days
+        # Sensitive sectors: IT, Information Technology, Pharma, Chemicals
         two_days = today + timedelta(days=2)
         mock_events.return_value = [
             {"type": "FOMC", "date": two_days.strftime("%Y-%m-%d"), "name": "US Fed FOMC Meeting"}
         ]
 
-        res = get_event_filter_for_ticker("RELIANCE", days_ahead=2)
-        assert res["has_event"] is True
-        assert res["score_adjustment"] == -1.0
-        assert "Fed FOMC in 2 days" in res["warning"]
+        # RELIANCE (Energy) -> non-sensitive -> reduced penalty (0.3 * -1.0 = -0.3)
+        res_rel = get_event_filter_for_ticker("RELIANCE", days_ahead=2)
+        assert res_rel["has_event"] is True
+        assert res_rel["score_adjustment"] == -0.3
+        assert "Fed FOMC in 2 days" in res_rel["warning"]
+
+        # INFY (IT) -> sensitive -> full penalty (-1.0)
+        res_infy = get_event_filter_for_ticker("INFY", days_ahead=2)
+        assert res_infy["has_event"] is True
+        assert res_infy["score_adjustment"] == -1.0
 
         # Test case 3: FOMC in 3 days (ignored because days_ahead defaults to 2)
         three_days = today + timedelta(days=3)
@@ -276,3 +290,20 @@ def test_get_event_filter_for_ticker():
         res = get_event_filter_for_ticker("RELIANCE", days_ahead=2)
         assert res["has_event"] is False
         assert res["score_adjustment"] == 0.0
+
+        # Test case 4: BUDGET tomorrow (1 day ahead)
+        # Sensitive sectors: Auto, FMCG, Energy, Realty, Metal, Infrastructure
+        mock_events.return_value = [
+            {"type": "BUDGET", "date": tomorrow.strftime("%Y-%m-%d"), "name": "Union Budget"}
+        ]
+
+        # RELIANCE (Energy) -> sensitive -> full penalty (-2.0)
+        res_rel = get_event_filter_for_ticker("RELIANCE", days_ahead=2)
+        assert res_rel["has_event"] is True
+        assert res_rel["score_adjustment"] == -2.0
+        assert "Budget in 1 day(s)" in res_rel["warning"]
+
+        # SUNPHARMA (Pharma) -> non-sensitive -> reduced penalty (0.3 * -2.0 = -0.6)
+        res_sun = get_event_filter_for_ticker("SUNPHARMA", days_ahead=2)
+        assert res_sun["has_event"] is True
+        assert res_sun["score_adjustment"] == -0.6
