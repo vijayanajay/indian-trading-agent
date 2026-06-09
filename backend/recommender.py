@@ -301,6 +301,20 @@ def _analyze_stock(ticker: str, allowed_strategies: dict = None) -> dict | None:
         return None
 
 
+def _recompute_confidence_and_counts(result: dict) -> dict:
+    """Recompute confidence and signal counts based on signals and filter adjustments."""
+    signals = result.get("signals", []) + result.get("filter_adjustments", [])
+    bullish_signals = [s for s in signals if s.get("direction") == "BULLISH"]
+    bearish_signals = [s for s in signals if s.get("direction") == "BEARISH"]
+
+    # Confidence: based on number of aligned signals AND score magnitude
+    aligned_count = max(len(bullish_signals), len(bearish_signals))
+    result["confidence"] = "HIGH" if aligned_count >= 4 else ("MEDIUM" if aligned_count >= 2 else "LOW")
+    result["bullish_signal_count"] = len(bullish_signals)
+    result["bearish_signal_count"] = len(bearish_signals)
+    return result
+
+
 def _apply_market_bias(result: dict, bias: dict) -> dict:
     """Apply market-wide FII/DII bias to a single stock result."""
     if not bias or bias.get("score_adjustment", 0) == 0:
@@ -356,7 +370,7 @@ def _apply_market_bias(result: dict, bias: dict) -> dict:
     result["market_bias_applied"] = bias["bias"]
     result["market_bias_score_adj"] = adj
 
-    return result
+    return _recompute_confidence_and_counts(result)
 
 
 def _apply_concentration_filter(result: dict, concentration_check: dict) -> dict:
@@ -420,7 +434,7 @@ def _apply_concentration_filter(result: dict, concentration_check: dict) -> dict
     result["honest_assessment"] = assessment
     result["suggested_position_size_pct"] = assessment.get("suggested_position_size_pct")
 
-    return result
+    return _recompute_confidence_and_counts(result)
 
 
 def _apply_event_filter(result: dict, event_filter: dict) -> dict:
@@ -482,7 +496,7 @@ def _apply_event_filter(result: dict, event_filter: dict) -> dict:
     result["honest_assessment"] = assessment
     result["suggested_position_size_pct"] = assessment.get("suggested_position_size_pct")
 
-    return result
+    return _recompute_confidence_and_counts(result)
 
 
 def recommend(

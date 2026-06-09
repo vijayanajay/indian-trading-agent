@@ -92,9 +92,12 @@
 - Updated corresponding unit tests in `tests/backend/test_honest_assessment.py` to assert the correct Kelly behavior under both low confidence and high confidence calibrated scenarios.
 - Fixed a date skip loop bug in the historical backtester (`backend/simulation.py::run_recommender_backtest()`) by replacing the redundant inner `for` loop and incorrect `if-else` alignment with direct calendar date advancement (`timedelta(days=interval_days)`), ensuring backtests sample dates at the correct density without skipping extra calendar days.
 - Added a new unit test `test_run_recommender_backtest_dates` in `tests/backend/test_simulation.py` to verify backtest date generation logic.
+- Implemented `_recompute_confidence_and_counts()` helper in `backend/recommender.py` to dynamically update a stock's `confidence`, `bullish_signal_count`, and `bearish_signal_count` after filter adjustments (FII/DII flow, sector concentration, and event risks) are applied, ensuring that UI conviction tags and shadow trade recording selections do not rely on stale pre-filter signal counts.
+- Added comprehensive unit tests in `tests/backend/test_recommender.py` (`test_recompute_confidence_and_counts_in_filters`) to verify confidence and count updates across all recommender filters.
 
 ## Rejected Changes
 
 - **Shadow Trade P&L Inverted for Bearish Signals**: Assumed that P&L calculation is inverted for bearish shadow trades. This was rejected because the shadow trade recorder currently only tracks `"STRONG BUY"` and `"BUY"` recommendations in the database. Consequently, no bearish shadow trades are stored in production, making the current P&L calculation correct for all recorded entries, and the proposed fix redundant under the user's long-only trading architecture.
+
 
 

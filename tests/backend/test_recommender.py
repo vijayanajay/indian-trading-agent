@@ -307,3 +307,48 @@ def test_get_event_filter_for_ticker():
         res_sun = get_event_filter_for_ticker("SUNPHARMA", days_ahead=2)
         assert res_sun["has_event"] is True
         assert res_sun["score_adjustment"] == -0.6
+
+
+def test_recompute_confidence_and_counts_in_filters():
+    def get_base_res():
+        return {
+            "score": 3.0,
+            "bullish_signal_count": 3,
+            "bearish_signal_count": 0,
+            "confidence": "MEDIUM",
+            "signals": [
+                {"type": "Volume Spike (Bullish)", "direction": "BULLISH", "value": "2.5x avg", "weight": 2.0},
+                {"type": "Near Major Support", "direction": "BULLISH", "value": "1.0% above low", "weight": 2.0},
+                {"type": "Strong Uptrend", "direction": "BULLISH", "value": "Price > 50 SMA > 200 SMA", "weight": 1.0},
+            ],
+            "filter_adjustments": []
+        }
+
+    # 1. Apply a bullish market bias flow (aligned count 4 -> HIGH confidence)
+    bias = {"bias": "BULLISH", "score_adjustment": 1.0, "reasoning": "FII buying"}
+    out = _apply_market_bias(get_base_res(), bias)
+    assert out["bullish_signal_count"] == 4
+    assert out["bearish_signal_count"] == 0
+    assert out["confidence"] == "HIGH"
+
+    # 2. Apply a bearish market bias flow instead (aligned count remains 3 -> MEDIUM confidence)
+    bias_bear = {"bias": "BEARISH", "score_adjustment": -1.0, "reasoning": "FII selling"}
+    out_bear = _apply_market_bias(get_base_res(), bias_bear)
+    assert out_bear["bullish_signal_count"] == 3
+    assert out_bear["bearish_signal_count"] == 1
+    assert out_bear["confidence"] == "MEDIUM"
+
+    # 3. Apply a concentration filter (adding a BEARISH adjustment)
+    conc = {"sector": "IT", "score_adjustment": -2.0, "warnings": ["High risk"]}
+    out_conc = _apply_concentration_filter(get_base_res(), conc)
+    assert out_conc["bullish_signal_count"] == 3
+    assert out_conc["bearish_signal_count"] == 1
+    assert out_conc["confidence"] == "MEDIUM"
+
+    # 4. Apply an event filter (adding a BEARISH adjustment)
+    event = {"has_event": True, "score_adjustment": -2.0, "warning": "RBI Policy"}
+    out_event = _apply_event_filter(get_base_res(), event)
+    assert out_event["bullish_signal_count"] == 3
+    assert out_event["bearish_signal_count"] == 1
+    assert out_event["confidence"] == "MEDIUM"
+
