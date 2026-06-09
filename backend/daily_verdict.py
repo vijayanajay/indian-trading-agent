@@ -122,6 +122,7 @@ def compute_daily_verdict() -> dict:
     except Exception as e:
         print(f"[Daily Verdict] Recommender check failed: {e}", flush=True)
         filter_results["recommendation_counts"] = None
+        caution_flags.append("Recommender unavailable — cannot verify setups")
 
     # === DECISION LOGIC ===
     caution_count = len(caution_flags)
@@ -176,6 +177,18 @@ def compute_daily_verdict() -> dict:
         position_size = 0.75
         max_trades = 2
         min_conviction = "HIGH"
+
+    # === POST-DECISION ADJUSTMENTS FOR RECOMMENDER STATUS ===
+    rec_counts = filter_results.get("recommendation_counts")
+    recommender_failed = (rec_counts is None)
+
+    if recommender_failed:
+        if verdict != "RED":
+            verdict = "YELLOW"
+            label = "SELECTIVE"
+        action = "Recommender unavailable — cannot verify setups. Manage existing trades only."
+        position_size = 0.0
+        max_trades = 0
 
     # Build reasoning
     reasoning_parts = []

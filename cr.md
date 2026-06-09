@@ -94,6 +94,8 @@
 - Added a new unit test `test_run_recommender_backtest_dates` in `tests/backend/test_simulation.py` to verify backtest date generation logic.
 - Implemented `_recompute_confidence_and_counts()` helper in `backend/recommender.py` to dynamically update a stock's `confidence`, `bullish_signal_count`, and `bearish_signal_count` after filter adjustments (FII/DII flow, sector concentration, and event risks) are applied, ensuring that UI conviction tags and shadow trade recording selections do not rely on stale pre-filter signal counts.
 - Added comprehensive unit tests in `tests/backend/test_recommender.py` (`test_recompute_confidence_and_counts_in_filters`) to verify confidence and count updates across all recommender filters.
+- Fixed a bug in `backend/daily_verdict.py::compute_daily_verdict()` that allowed a GREEN verdict and trade recommendations even when the recommender engine failed. If the recommender check fails (raises an exception), a caution flag is added, and the verdict is forced to YELLOW or RED with `max_trades=0` to ensure a fail-safe default.
+- Added unit tests in `tests/backend/test_daily_verdict.py` to verify the recommender failure and zero-setup scenarios.
 
 ## Rejected Changes
 

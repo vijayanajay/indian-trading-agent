@@ -187,3 +187,38 @@ def test_events_parsing():
         assert any("Union Budget in 0 days" in c for c in res["caution_flags"])
         assert any("RBI Policy decision TODAY" in c for c in res["caution_flags"])
         assert any("Fed FOMC decision TODAY" in c for c in res["caution_flags"])
+
+
+@patch("backend.fii_dii.get_market_bias")
+@patch("backend.calendar_data.get_market_events_in_range")
+@patch("backend.concentration.get_concentration_summary")
+@patch("backend.recommender.recommend")
+def test_compute_daily_verdict_recommender_failed_forces_zero_trades(mock_recommend, mock_conc, mock_events, mock_bias):
+    mock_bias.return_value = {"bias": "BULLISH", "confidence": "LOW"}
+    mock_events.return_value = []
+    mock_conc.return_value = {"risk_level": "LOW"}
+    mock_recommend.side_effect = Exception("yfinance API down")
+
+    res = compute_daily_verdict()
+    assert res["verdict"] == "YELLOW"
+    assert res["max_trades_today"] == 0
+    assert res["recommended_position_size_pct"] == 0.0
+    assert any("Recommender unavailable" in c for c in res["caution_flags"])
+
+
+@patch("backend.fii_dii.get_market_bias")
+@patch("backend.calendar_data.get_market_events_in_range")
+@patch("backend.concentration.get_concentration_summary")
+@patch("backend.recommender.recommend")
+def test_compute_daily_verdict_no_setups_downgrades_green_verdict(mock_recommend, mock_conc, mock_events, mock_bias):
+    mock_bias.return_value = {"bias": "BULLISH", "confidence": "LOW"}
+    mock_events.return_value = []
+    mock_conc.return_value = {"risk_level": "LOW"}
+    mock_recommend.return_value = {
+        "strong_buys": [], "buys": [], "sells": []
+    }
+
+    res = compute_daily_verdict()
+    assert res["verdict"] == "YELLOW"
+    assert res["max_trades_today"] == 3
+    assert res["recommended_position_size_pct"] == 0.75
