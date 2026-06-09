@@ -104,7 +104,13 @@ def compute_daily_verdict() -> dict:
     try:
         # Lightweight check — analyze NIFTY 50 only for speed
         from backend.recommender import recommend
-        recs = recommend(universe="nifty50", min_signals=2)
+        recs = recommend(
+            universe="nifty50",
+            min_signals=2,
+            apply_market_bias=False,
+            apply_event_filter=False,
+            apply_concentration_check=False,
+        )
         filter_results["recommendation_counts"] = {
             "strong_buys": len(recs["strong_buys"]),
             "buys": len(recs["buys"]),

@@ -96,6 +96,8 @@
 - Added comprehensive unit tests in `tests/backend/test_recommender.py` (`test_recompute_confidence_and_counts_in_filters`) to verify confidence and count updates across all recommender filters.
 - Fixed a bug in `backend/daily_verdict.py::compute_daily_verdict()` that allowed a GREEN verdict and trade recommendations even when the recommender engine failed. If the recommender check fails (raises an exception), a caution flag is added, and the verdict is forced to YELLOW or RED with `max_trades=0` to ensure a fail-safe default.
 - Added unit tests in `tests/backend/test_daily_verdict.py` to verify the recommender failure and zero-setup scenarios.
+- Fixed double-counting of risk factors in `backend/daily_verdict.py::compute_daily_verdict()` by passing `apply_market_bias=False`, `apply_event_filter=False`, and `apply_concentration_check=False` to the lightweight setup scan call to `recommend()`, ensuring macro overlays (FII bias, event calendars, sector limits) are not double-penalized at both stock-level scoring and top-level verdict layers.
+- Added a unit test in `tests/backend/test_daily_verdict.py` verifying that the daily verdict scanner disables recommender filters during setup-density checks.
 
 ## Rejected Changes
 

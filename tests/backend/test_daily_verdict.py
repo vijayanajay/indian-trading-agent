@@ -222,3 +222,27 @@ def test_compute_daily_verdict_no_setups_downgrades_green_verdict(mock_recommend
     assert res["verdict"] == "YELLOW"
     assert res["max_trades_today"] == 3
     assert res["recommended_position_size_pct"] == 0.75
+
+
+@patch("backend.fii_dii.get_market_bias")
+@patch("backend.calendar_data.get_market_events_in_range")
+@patch("backend.concentration.get_concentration_summary")
+@patch("backend.recommender.recommend")
+def test_compute_daily_verdict_recommender_filters_disabled(mock_recommend, mock_conc, mock_events, mock_bias):
+    mock_bias.return_value = {"bias": "NEUTRAL", "confidence": "LOW"}
+    mock_events.return_value = []
+    mock_conc.return_value = {"risk_level": "LOW"}
+    mock_recommend.return_value = {
+        "strong_buys": [], "buys": [], "sells": []
+    }
+
+    compute_daily_verdict()
+    
+    mock_recommend.assert_called_once_with(
+        universe="nifty50",
+        min_signals=2,
+        apply_market_bias=False,
+        apply_event_filter=False,
+        apply_concentration_check=False
+    )
+
