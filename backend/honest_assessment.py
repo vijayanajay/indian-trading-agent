@@ -115,13 +115,13 @@ def get_portfolio_drawdown() -> float:
                 "status": status
             })
             
-        # Sort events chronologically. Exit events before entry events at the same timestamp.
+        # Sort events chronologically. Entry events before exit events at the same timestamp.
         events = []
         for i, t in enumerate(trades):
             events.append((t["entry"], "entry", i))
             events.append((t["exit"], "exit", i))
             
-        events.sort(key=lambda x: (x[0], 0 if x[1] == "exit" else 1))
+        events.sort(key=lambda x: (x[0], 0 if x[1] == "entry" else 1))
         
         equity = 100000.0
         cash = equity

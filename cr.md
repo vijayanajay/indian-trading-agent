@@ -65,4 +65,7 @@
 - Fixed double-counting of trades in `backend/honest_assessment.py::get_honest_assessment()` by introducing deterministic Python deduplication for both direct database fallback queries and Kelly stats estimation, prioritizing paper trades over shadow trades.
 - Added comprehensive unit test in `tests/backend/test_honest_assessment.py` to verify the deduplication of duplicate paper and shadow trades in both fallback and Kelly calculation paths.
 - Fixed the portfolio drawdown calculation (`get_portfolio_drawdown()`) to incorporate the dynamic, marked-to-market unrealized P&L of active open positions, preventing drawdowns from being systematically understated during losing streaks and ensuring the >10% drawdown guardrail triggers correctly. Added corresponding database columns and updated the price refresh cycle to calculate and persist `unrealized_pnl_pct`.
+- Fixed the portfolio drawdown event sorting bug in `backend/honest_assessment.py::get_portfolio_drawdown()` by sorting entry events before exit events when they occur at the same timestamp (e.g., day trades or intraday exits). This prevents same-day exits from being processed as no-ops on empty open positions, which previously locked up simulated cash, corrupted the equity curve, and distorted drawdown metrics used for Kelly sizing safety caps.
+- Added unit test `test_portfolio_drawdown_same_day_trade` in `tests/backend/test_honest_assessment.py` to verify same-day/timestamp entry and exit processing.
+
 

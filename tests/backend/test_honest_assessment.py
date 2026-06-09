@@ -744,6 +744,49 @@ def test_portfolio_drawdown_with_unrealized_pnl():
     assert abs(dd - 3.0) < 0.01
 
 
+def test_portfolio_drawdown_same_day_trade():
+    """Verify that same-day/timestamp entry and exit are processed entry-first so drawdown calculation is correct."""
+    from backend.honest_assessment import get_portfolio_drawdown
+
+    with get_db() as conn:
+        conn.execute("DELETE FROM paper_trades")
+
+    # Trade 1: Same day trade (entry and exit at same timestamp).
+    # Entry: 2026-06-01 10:00:00, Exit: 2026-06-01 10:00:00
+    # Returns -50.0%, position_size_pct = 10.0%.
+    # Trade 2: Next day trade.
+    # Entry: 2026-06-02 10:00:00, Exit: 2026-06-03 10:00:00
+    # Returns -50.0%, position_size_pct = 10.0%.
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_datetime, status, pnl_5d_pct, updated_at, position_size_pct, unrealized_pnl_pct)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("ST1", 100.0, "[]", "2026-06-01 10:00:00", "manually_closed", -50.0, "2026-06-01 10:00:00", 10.0, 0.0)
+        )
+        conn.execute(
+            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_datetime, status, pnl_5d_pct, updated_at, position_size_pct, unrealized_pnl_pct)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("ST2", 100.0, "[]", "2026-06-02 10:00:00", "expired", -50.0, "2026-06-03 10:00:00", 10.0, 0.0)
+        )
+
+    dd = get_portfolio_drawdown()
+    # If same-day trades are processed correctly (entry first, then exit):
+    # - Start equity: 100k
+    # - ST1 entry: alloc 10k (10% of 100k). Cash = 90k.
+    # - ST1 exit: popped, returned = 5k. Cash = 95k. Equity = 95k.
+    # - ST2 entry: alloc 9.5k (10% of 95k). Cash = 85.5k.
+    # - ST2 exit: popped, returned = 4.75k. Cash = 90.25k. Equity = 90.25k.
+    # - Drawdown from peak (100k) should be 9.75%
+    # If the bug is active (exit first, then entry):
+    # - ST1 exit processed first: no-op (ST1 not in open_positions).
+    # - ST1 entry: alloc 10k. Cash = 90k, open_positions = {0: 10k}.
+    # - ST2 entry: alloc 10k (10% of 100k equity, since open_positions[0] = 10k). Cash = 80k. open_positions = {0: 10k, 1: 10k}.
+    # - ST2 exit: popped ST2. returned = 5k. Cash = 85k. open_positions = {0: 10k}.
+    # - Final equity = 85k + 10k (marked-to-market ST1) = 95k. Drawdown is 5.0%.
+    assert abs(dd - 9.75) < 0.01
+
+
+
 
 
 
