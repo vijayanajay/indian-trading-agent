@@ -1,7 +1,7 @@
 """Per-signal performance API — track which recommender signals actually win,
 and let the user auto-tune the weights from real trade outcomes."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 
@@ -42,15 +42,20 @@ class ApplyRequest(BaseModel):
 
 @router.post("/apply")
 def apply(req: ApplyRequest):
-    """Persist suggested weight changes. Recommender will use these on the next run."""
-    return apply_tuned_weights(window_days=req.window_days, only_keys=req.only_keys)
+    """Deprecated: Manual weight overrides are retired."""
+    raise HTTPException(
+        status_code=400,
+        detail="Manual weight overrides are retired. The system uses a trained L1-regularized logistic regression model instead."
+    )
 
 
 @router.post("/reset")
 def reset():
-    """Clear all tuned overrides — fall back to DEFAULT_WEIGHTS."""
-    reset_tuned_weights()
-    return {"status": "ok", "message": "Tuned weights cleared"}
+    """Deprecated: Manual weight overrides are retired."""
+    raise HTTPException(
+        status_code=400,
+        detail="Manual weight overrides are retired. The system uses a trained L1-regularized logistic regression model instead."
+    )
 
 
 # --- Per-regime conditional weights (Tier 4.1) ---
@@ -75,12 +80,18 @@ class ApplyRegimeRequest(BaseModel):
 
 @router.post("/regime-apply")
 def regime_apply(req: ApplyRegimeRequest):
-    """Persist per-regime suggestions. Recommender uses them on the next run."""
-    return apply_regime_weights(window_days=req.window_days, only_regimes=req.only_regimes)
+    """Deprecated: Regime weight overrides are retired."""
+    raise HTTPException(
+        status_code=400,
+        detail="Regime weight overrides are retired. The system uses a trained L1-regularized logistic regression model instead."
+    )
 
 
 @router.post("/regime-reset")
 def regime_reset():
-    """Clear per-regime overrides — recommender falls back to base tuned weights."""
-    reset_regime_weights()
-    return {"status": "ok", "message": "Regime weights cleared"}
+    """Deprecated: Regime weight overrides are retired."""
+    raise HTTPException(
+        status_code=400,
+        detail="Regime weight overrides are retired. The system uses a trained L1-regularized logistic regression model instead."
+    )
+

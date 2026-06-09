@@ -77,4 +77,7 @@
 - Fixed the sector concentration checker in `backend/concentration.py` to use the actual `position_size_pct` from paper trades when available, instead of assuming a hardcoded 10% capital allocation per position.
 - Updated `get_open_positions()` to pass the `position_size_pct` attribute of paper trades, allowing `get_sector_allocation()` to compute exact exposure and prevent unintended breaches of the 30% sector cap or the 3-position limit.
 - Created unit tests in `tests/backend/test_concentration.py` to verify the new dynamic position size-based concentration value calculation and its fallback logic.
-
+- Retired legacy manual/regime weight-tuning API endpoints (`/apply`, `/reset`, `/regime-apply`, `/regime-reset` inside `backend/routers/signal_performance.py`) by raising HTTP 400 Bad Request exceptions with deprecation notices.
+- Cleaned up the frontend Signal Performance page (`frontend/src/app/signals/page.tsx`) by removing obsolete override state, API calls, and weight-tuning action buttons.
+- Redesigned the Signal Performance page callouts to replace legacy instructions with a premium, pulse-animated info card highlighting the active L1-regularized logistic regression model's architecture.
+- Integrated the live `<RegimeBadge />` next to summary diagnostics on the Signal Performance page and simplified the table columns to display base weights next to real-world performance metrics.
