@@ -38,7 +38,7 @@ SIGNAL_KEYS = [
 SIGNAL_TYPE_TO_KEY = {
     "Gap Up (Filled)": "gap_up_filled",
     "Gap Up (Unfilled)": "gap_up_open",
-    "Gap Down (Filled - Reversal)": "gap_down_filled",
+    "Gap Down (Filled - Fade)": "gap_down_filled",
     "Gap Down (Unfilled)": "gap_down_open",
     "Volume Spike (Bullish)": "volume_bullish",
     "Volume Spike (Bearish)": "volume_bearish",

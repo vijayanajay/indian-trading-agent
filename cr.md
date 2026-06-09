@@ -81,3 +81,4 @@
 - Cleaned up the frontend Signal Performance page (`frontend/src/app/signals/page.tsx`) by removing obsolete override state, API calls, and weight-tuning action buttons.
 - Redesigned the Signal Performance page callouts to replace legacy instructions with a premium, pulse-animated info card highlighting the active L1-regularized logistic regression model's architecture.
 - Integrated the live `<RegimeBadge />` next to summary diagnostics on the Signal Performance page and simplified the table columns to display base weights next to real-world performance metrics.
+- Changed the gap-down filled signal direction from "BULLISH" to "BEARISH" (fade) in `backend/recommender.py` (`_analyze_stock()`), renamed the signal type to "Gap Down (Filled - Fade)", updated its default weight to `-1.5`, aligned the trade direction in `backend/performance.py` (`measure_gap_strategy()`) to set a short direction for filled gap-downs, and updated all corresponding unit tests.

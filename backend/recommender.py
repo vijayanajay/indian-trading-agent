@@ -17,7 +17,7 @@ from backend.scanner import NIFTY_50, NIFTY_100, BSE_250, UNIVERSES
 # Historical win rates (baseline — will be overridden by live performance data if available)
 DEFAULT_WEIGHTS = {
     "gap_up_filled": 1.5,      # Gap up that filled = strong buying
-    "gap_down_filled": 1.5,    # Gap down that filled = strong buying (reversal)
+    "gap_down_filled": -1.5,   # Gap down that filled = bearish fade
     "gap_up_open": -0.5,       # Unfilled gap up = fade signal (historically 35% win rate)
     "gap_down_open": -0.5,     # Unfilled gap down = fade signal
     "volume_bullish": 2.0,     # Volume spike with green candle
@@ -153,9 +153,9 @@ def _analyze_stock(ticker: str, allowed_strategies: dict = None) -> dict | None:
                 else:
                     # Gap down
                     if current_high >= prev_close:
-                        # Gap down filled = bullish reversal
+                        # Gap down filled = bearish fade
                         score += _ACTIVE_WEIGHTS["gap_down_filled"]
-                        signals.append({"type": "Gap Down (Filled - Reversal)", "direction": "BULLISH", "value": f"{gap_pct:.2f}%", "weight": _ACTIVE_WEIGHTS["gap_down_filled"]})
+                        signals.append({"type": "Gap Down (Filled - Fade)", "direction": "BEARISH", "value": f"{gap_pct:.2f}%", "weight": _ACTIVE_WEIGHTS["gap_down_filled"]})
                     else:
                         score += _ACTIVE_WEIGHTS["gap_down_open"]
                         signals.append({"type": "Gap Down (Unfilled)", "direction": "FADE", "value": f"{gap_pct:.2f}%", "weight": _ACTIVE_WEIGHTS["gap_down_open"]})

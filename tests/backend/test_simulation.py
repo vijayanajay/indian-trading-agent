@@ -90,7 +90,7 @@ def test_simulation_gap_down_filled(mock_ticker, mock_rsi, mock_get_regime):
     dates = pd.date_range(end="2026-06-18", periods=70)
     volumes = [1000] * 70
     
-    # Gap Down (Filled): gap_pct = -3%, high = 100.5 >= prev_close (100) -> should add 1.5
+    # Gap Down (Filled): gap_pct = -3%, high = 100.5 >= prev_close (100) -> should add -1.5
     target_idx = 59
     opens = [100.0] * 70
     highs = [101.0] * 70
@@ -100,9 +100,9 @@ def test_simulation_gap_down_filled(mock_ticker, mock_rsi, mock_get_regime):
     opens[target_idx] = 97.0
     highs[target_idx] = 100.5
     lows[target_idx] = 96.0
-    closes[target_idx] = 101.0
+    closes[target_idx] = 99.0
     
-    # Volume spike: vol_ratio >= 2.0 and price_change > 0.5 -> score += 2.0
+    # Volume spike: vol_ratio >= 2.0 and price_change < -0.5 -> score += -2.0
     volumes[target_idx] = 2000
     
     df = pd.DataFrame({
@@ -112,9 +112,9 @@ def test_simulation_gap_down_filled(mock_ticker, mock_rsi, mock_get_regime):
     
     result = _analyze_stock_at_date("TEST", target_date)
     assert result is not None
-    # Expected score: 1.5 (gap down filled) + 2.0 (volume spike bullish) = 3.5 (BUY)
-    assert result["score"] == 3.5
-    assert result["signal"] == "BUY"
+    # Expected score: -1.5 (gap down filled) + -2.0 (volume spike bearish) = -3.5 (SELL)
+    assert result["score"] == -3.5
+    assert result["signal"] == "SELL"
 
 
 @patch("backend.market_regime.get_cached_regime", return_value={"regime": None})

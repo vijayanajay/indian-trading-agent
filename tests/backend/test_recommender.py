@@ -136,7 +136,7 @@ def test_gap_signals(mock_ticker):
     assert len(gap_signals) == 1
     assert gap_signals[0]["direction"] == "FADE"
 
-    # 4. Test Gap Down (Filled - Reversal): gap_pct <= -2.0, high >= prev_close
+    # 4. Test Gap Down (Filled - Fade): gap_pct <= -2.0, high >= prev_close
     # prev_close = 100, open = 97 (gap -3%), high = 100.5 (filled), close = 99
     opens = [100.0] * 59 + [97.0]
     highs = [101.0] * 59 + [100.5]
@@ -150,9 +150,9 @@ def test_gap_signals(mock_ticker):
     
     result = _analyze_stock("TEST", allowed_strategies={"gap": True})
     assert result is not None
-    gap_signals = [s for s in result["signals"] if "Gap Down (Filled - Reversal)" in s["type"]]
+    gap_signals = [s for s in result["signals"] if "Gap Down (Filled - Fade)" in s["type"]]
     assert len(gap_signals) == 1
-    assert gap_signals[0]["direction"] == "BULLISH"
+    assert gap_signals[0]["direction"] == "BEARISH"
 
     # 5. Test Gap Down (Unfilled): gap_pct <= -2.0, high < prev_close
     # prev_close = 100, open = 97 (gap -3%), high = 99 (unfilled), close = 98
