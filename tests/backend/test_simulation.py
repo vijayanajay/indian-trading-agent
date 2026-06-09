@@ -5,9 +5,10 @@ from datetime import date
 from unittest.mock import patch
 from backend.simulation import _analyze_stock_at_date
 
+@patch("backend.market_regime.get_cached_regime", return_value={"regime": None})
 @patch("backend.simulation._compute_rsi", return_value=50.0)
 @patch("backend.simulation.yf.Ticker")
-def test_simulation_gap_up_filled(mock_ticker, mock_rsi):
+def test_simulation_gap_up_filled(mock_ticker, mock_rsi, mock_get_regime):
     # Target date
     target_date = date(2026, 6, 8)
     
@@ -44,9 +45,10 @@ def test_simulation_gap_up_filled(mock_ticker, mock_rsi):
     assert result["signal"] == "BUY"
 
 
+@patch("backend.market_regime.get_cached_regime", return_value={"regime": None})
 @patch("backend.simulation._compute_rsi", return_value=50.0)
 @patch("backend.simulation.yf.Ticker")
-def test_simulation_gap_up_unfilled(mock_ticker, mock_rsi):
+def test_simulation_gap_up_unfilled(mock_ticker, mock_rsi, mock_get_regime):
     target_date = date(2026, 6, 8)
     
     dates = pd.date_range(end="2026-06-18", periods=70)
@@ -79,9 +81,10 @@ def test_simulation_gap_up_unfilled(mock_ticker, mock_rsi):
     assert result["signal"] == "SELL"
 
 
+@patch("backend.market_regime.get_cached_regime", return_value={"regime": None})
 @patch("backend.simulation._compute_rsi", return_value=50.0)
 @patch("backend.simulation.yf.Ticker")
-def test_simulation_gap_down_filled(mock_ticker, mock_rsi):
+def test_simulation_gap_down_filled(mock_ticker, mock_rsi, mock_get_regime):
     target_date = date(2026, 6, 8)
     
     dates = pd.date_range(end="2026-06-18", periods=70)
@@ -114,9 +117,10 @@ def test_simulation_gap_down_filled(mock_ticker, mock_rsi):
     assert result["signal"] == "BUY"
 
 
+@patch("backend.market_regime.get_cached_regime", return_value={"regime": None})
 @patch("backend.simulation._compute_rsi", return_value=50.0)
 @patch("backend.simulation.yf.Ticker")
-def test_simulation_gap_down_unfilled(mock_ticker, mock_rsi):
+def test_simulation_gap_down_unfilled(mock_ticker, mock_rsi, mock_get_regime):
     target_date = date(2026, 6, 8)
     
     dates = pd.date_range(end="2026-06-18", periods=70)
@@ -147,3 +151,53 @@ def test_simulation_gap_down_unfilled(mock_ticker, mock_rsi):
     # Expected score: -0.5 (gap down unfilled) + -2.0 (volume spike bearish) = -2.5 (SELL)
     assert result["score"] == -2.5
     assert result["signal"] == "SELL"
+
+
+@patch("backend.simulation._compute_rsi", return_value=50.0)
+@patch("backend.simulation.yf.Ticker")
+@patch("backend.signal_performance.get_active_weights_for_regime")
+def test_simulation_regime_weights(mock_get_weights, mock_ticker, mock_rsi):
+    # Setup custom weights where breakout is extremely valued
+    custom_weights = {
+        "gap_up_filled": 1.5,
+        "gap_up_open": -0.5,
+        "gap_down_filled": 1.5,
+        "gap_down_open": -0.5,
+        "volume_bullish": 2.0,
+        "volume_bearish": -2.0,
+        "breakout_vol_confirmed": 10.0,  # normally 3.0
+        "breakout_weak": 1.0,
+        "near_support": 2.0,
+        "near_resistance": -1.5,
+        "breakdown_support": -2.5,
+        "rsi_oversold": 1.5,
+        "rsi_overbought": -1.0,
+    }
+    mock_get_weights.return_value = custom_weights
+    
+    target_date = date(2026, 6, 8)
+    dates = pd.date_range(end="2026-06-18", periods=70)
+    volumes = [1000] * 70
+    opens = [100.0] * 70
+    highs = [100.0] * 70
+    lows = [99.0] * 70
+    closes = [100.0] * 70
+    
+    # Setup breakout on target date
+    target_idx = 59
+    highs[target_idx] = 105.0  # above 20-day high (100)
+    closes[target_idx] = 104.0
+    volumes[target_idx] = 2000  # vol_ratio >= 1.5 (2.0x avg)
+    
+    df = pd.DataFrame({
+        "Open": opens, "High": highs, "Low": lows, "Close": closes, "Volume": volumes
+    }, index=dates)
+    mock_ticker.return_value.history.return_value = df
+    
+    result = _analyze_stock_at_date("TEST", target_date, regime="HIGH_VOL")
+    
+    mock_get_weights.assert_called_once_with("HIGH_VOL")
+    assert result is not None
+    # Expected score: 10.0 (custom breakout_vol_confirmed) + 2.0 (volume_bullish) = 12.0
+    assert result["score"] == 12.0
+    assert result["signal"] == "STRONG BUY"

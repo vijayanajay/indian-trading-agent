@@ -69,3 +69,7 @@
 - Added unit test `test_portfolio_drawdown_same_day_trade` in `tests/backend/test_honest_assessment.py` to verify same-day/timestamp entry and exit processing.
 - Fixed the portfolio drawdown calculation (`get_portfolio_drawdown()`) by skipping trades with NULL P&L from the simulation, preventing expired trades or trades with price-fetching failures from defaulting to a 0.0% (breakeven) P&L, which previously understated drawdowns and compromised the Kelly sizing safety cap.
 - Added a unit test `test_portfolio_drawdown_null_pnl` in `tests/backend/test_honest_assessment.py` to verify that trades with NULL P&L are correctly skipped.
+- Replaced inline hardcoded signal weights in `_analyze_stock_at_date()` inside the backtest engine (`backend/simulation.py`) with active tuned/regime-specific weights fetched dynamically via `get_active_weights_for_regime(regime)`.
+- Updated the historical backtester in `backend/simulation.py` to pre-calculate and cache the market regime at each target date and pass it to individual stock analysis threads.
+- Added a new unit test `test_simulation_regime_weights` in `tests/backend/test_simulation.py` to verify that custom/regime-specific weights are fetched and used in backtests, and added mocks to prevent external network calls during testing.
+

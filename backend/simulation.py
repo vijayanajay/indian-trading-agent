@@ -289,7 +289,7 @@ def _compute_rsi(closes, period=14):
     return 100.0 - (100.0 / (1.0 + rs))
 
 
-def _analyze_stock_at_date(ticker: str, target_date: date) -> dict | None:
+def _analyze_stock_at_date(ticker: str, target_date: date, regime: str | None = None) -> dict | None:
     """Replay the recommender logic for a stock AS OF a specific past date.
 
     Uses historical prices up to (but not including) target_date to compute signals,
@@ -297,6 +297,22 @@ def _analyze_stock_at_date(ticker: str, target_date: date) -> dict | None:
     """
     import numpy as np
     try:
+        # Determine regime if not provided
+        if regime is None:
+            try:
+                from backend.market_regime import get_cached_regime
+                regime = get_cached_regime(target_date).get("regime")
+            except Exception:
+                regime = None
+
+        # Fetch active tuned/regime-specific weights
+        try:
+            from backend.signal_performance import get_active_weights_for_regime
+            W = get_active_weights_for_regime(regime)
+        except Exception:
+            from backend.recommender import DEFAULT_WEIGHTS
+            W = DEFAULT_WEIGHTS
+
         symbol = f"{ticker}.NS"
         t = yf.Ticker(symbol)
         # Fetch data: 6 months BEFORE target + 15 days AFTER for outcome measurement
@@ -337,9 +353,9 @@ def _analyze_stock_at_date(ticker: str, target_date: date) -> dict | None:
         gap_pct = (current_open - prev_close) / prev_close * 100 if prev_close else 0
         if abs(gap_pct) >= 2.0:
             if gap_pct > 0:
-                score += 1.5 if current_low <= prev_close else -0.5
+                score += W["gap_up_filled"] if current_low <= prev_close else W["gap_up_open"]
             else:
-                score += 1.5 if current_high >= prev_close else -0.5
+                score += W["gap_down_filled"] if current_high >= prev_close else W["gap_down_open"]
 
         # Volume + Breakout
         vol_ratio = current_volume / avg_volume if avg_volume > 0 else 1
@@ -347,29 +363,29 @@ def _analyze_stock_at_date(ticker: str, target_date: date) -> dict | None:
             n_day_high = float(np.max(highs[-21:-1]))
             n_day_low = float(np.min(lows[-21:-1]))
             if current_high > n_day_high:
-                score += 3.0 if vol_ratio >= 1.5 else 1.0
+                score += W["breakout_vol_confirmed"] if vol_ratio >= 1.5 else W["breakout_weak"]
             elif current_low < n_day_low:
-                score += -2.5
+                score += W["breakdown_support"]
         if vol_ratio >= 2.0:
             price_change = (current_close - prev_close) / prev_close * 100 if prev_close else 0
-            score += 2.0 if price_change > 0.5 else (-2.0 if price_change < -0.5 else 0)
+            score += W["volume_bullish"] if price_change > 0.5 else (W["volume_bearish"] if price_change < -0.5 else 0)
 
         # Support/Resistance
         if len(highs) > 60:
             recent_high = float(np.max(highs[-60:]))
             recent_low = float(np.min(lows[-60:]))
             if (current_close - recent_low) / current_close * 100 < 2.0:
-                score += 2.0
+                score += W["near_support"]
             elif (recent_high - current_close) / current_close * 100 < 2.0:
-                score += -1.5
+                score += W["near_resistance"]
 
         # RSI
         rsi = _compute_rsi(closes)
         if rsi is not None:
             if rsi < 30:
-                score += 1.5
+                score += W["rsi_oversold"]
             elif rsi > 70:
-                score += -1.0
+                score += W["rsi_overbought"]
 
         # Determine signal + direction
         if score >= 4.0:
@@ -452,9 +468,15 @@ def run_recommender_backtest(
     all_results = []
 
     for d in dates:
+        try:
+            from backend.market_regime import get_cached_regime
+            regime = get_cached_regime(d).get("regime")
+        except Exception:
+            regime = None
+
         # Analyze all stocks for this date in parallel
         with ThreadPoolExecutor(max_workers=10) as executor:
-            futures = [executor.submit(_analyze_stock_at_date, ticker, d) for ticker in stocks]
+            futures = [executor.submit(_analyze_stock_at_date, ticker, d, regime) for ticker in stocks]
             for f in as_completed(futures):
                 result = f.result()
                 if result:
