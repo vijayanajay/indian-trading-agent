@@ -239,3 +239,35 @@ def test_simulation_neutral_hold_signal(mock_ticker, mock_rsi, mock_get_regime):
     assert result["signal"] == "HOLD"
     assert result["return_5d"] == 5.0
     assert result["outcome_5d"] == "win"
+
+
+@patch("backend.simulation.get_db")
+@patch("backend.simulation.save_recommender_backtest_row")
+@patch("backend.simulation._analyze_stock_at_date")
+@patch("backend.market_regime.get_cached_regime", return_value={"regime": None})
+def test_run_recommender_backtest_dates(mock_regime, mock_analyze, mock_save, mock_get_db):
+    mock_analyze.return_value = {
+        "ticker": "TEST",
+        "signal": "BUY",
+        "score": 3.0,
+        "entry_price": 100.0,
+        "return_5d": 5.0,
+        "outcome_5d": "win",
+        "confidence": "MEDIUM",
+        "success_probability": None,
+    }
+    
+    from backend.simulation import run_recommender_backtest
+    result = run_recommender_backtest(
+        universe="nifty50",
+        start_date="2026-05-01",
+        end_date="2026-06-01",
+        interval_days=5,
+    )
+    
+    # 2026-05-01 (Friday) -> skip 5 days -> 2026-05-06 (Wednesday) -> skip 5 days -> 2026-05-11 (Monday)
+    # -> skip 5 days -> 2026-05-16 (Saturday -> Sunday -> Monday 2026-05-18)
+    # -> skip 5 days -> 2026-05-23 (Saturday -> Sunday -> Monday 2026-05-25)
+    # -> skip 5 days -> 2026-05-30 (Saturday -> Sunday -> Monday 2026-06-01)
+    # Total dates tested: 6
+    assert result["dates_tested"] == 6

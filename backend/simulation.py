@@ -460,9 +460,7 @@ def run_recommender_backtest(
     while current <= end:
         if is_trading_day(current):
             dates.append(current)
-            # Skip ahead by interval
-            for _ in range(interval_days):
-                current += timedelta(days=1)
+            current += timedelta(days=interval_days)
         else:
             current += timedelta(days=1)
 
