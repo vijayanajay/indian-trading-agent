@@ -65,6 +65,7 @@ const simulationHelp = [
 const signalColors: Record<string, string> = {
   "STRONG BUY": "bg-green-100 text-green-800 border-green-300",
   BUY: "bg-green-50 text-green-700 border-green-200",
+  HOLD: "bg-gray-100 text-gray-700 border-gray-300",
   SELL: "bg-red-50 text-red-700 border-red-200",
   "STRONG SELL": "bg-red-100 text-red-800 border-red-300",
 };
@@ -342,12 +343,12 @@ export default function SimulationPage() {
       const data: any = await getRecommenderBacktestResult(runId);
       // Reconstruct summary from rows
       const rows = data.rows || [];
-      const with5d = rows.filter((r: any) => r.return_5d !== null);
+      const with5d = rows.filter((r: any) => r.return_5d !== null && r.signal !== "HOLD");
       const wins = with5d.filter((r: any) => r.return_5d > 0).length;
       const avg = with5d.length > 0 ? with5d.reduce((s: number, r: any) => s + r.return_5d, 0) / with5d.length : 0;
 
       const bySignal: Record<string, any> = {};
-      ["STRONG BUY", "BUY", "SELL", "STRONG SELL"].forEach((sig) => {
+      ["STRONG BUY", "BUY", "HOLD", "SELL", "STRONG SELL"].forEach((sig) => {
         const sigRows = rows.filter((r: any) => r.signal === sig && r.return_5d !== null);
         if (sigRows.length > 0) {
           const sigWins = sigRows.filter((r: any) => r.return_5d > 0).length;

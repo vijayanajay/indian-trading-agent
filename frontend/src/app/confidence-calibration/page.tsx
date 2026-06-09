@@ -71,6 +71,11 @@ const helpItems = [
     answer:
       "1. If overconfident: mentally subtract the gap from any displayed probability. e.g., engine says 70%, gap is -10%, treat it as 60%.\n\n2. If underconfident: trust the engine more, take larger positions on its high-conviction calls.\n\n3. Watch for bin-specific patterns: maybe 60-70% is honest but 80%+ is wildly overconfident. That tells you the engine is bad at extreme calls.\n\n4. After 50+ closed trades the picture stabilizes. Re-check monthly and adjust the success_probability formula coefficients in backend/recommender.py if there's a persistent gap.",
   },
+  {
+    question: "Is there any selection bias in the model training?",
+    answer:
+      "Yes. The L1-regularized logistic regression model is trained exclusively on closed paper and shadow trades, which only include high-confidence recommendations (BUY/STRONG BUY/SELL/STRONG SELL). It does not train on neutral signals (scores between -2 and +2) which likely have lower directional edge. Therefore, the estimated win probability is a conditional probability: given that the recommender emitted a non-neutral recommendation, what is the probability of success? You should not extrapolate the model's probabilities to neutral/HOLD signals.",
+  },
 ];
 
 const QUALITY_STYLES: Record<string, string> = {

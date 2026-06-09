@@ -201,3 +201,41 @@ def test_simulation_regime_weights(mock_get_weights, mock_ticker, mock_rsi):
     # Expected score: 10.0 (custom breakout_vol_confirmed) + 2.0 (volume_bullish) = 12.0
     assert result["score"] == 12.0
     assert result["signal"] == "STRONG BUY"
+
+
+@patch("backend.market_regime.get_cached_regime", return_value={"regime": None})
+@patch("backend.simulation._compute_rsi", return_value=50.0)
+@patch("backend.simulation.yf.Ticker")
+def test_simulation_neutral_hold_signal(mock_ticker, mock_rsi, mock_get_regime):
+    target_date = date(2026, 6, 8)
+    
+    dates = pd.date_range(end="2026-06-18", periods=70)
+    volumes = [1000] * 70
+    opens = [100.0] * 70
+    highs = [101.0] * 70
+    lows = [99.0] * 70
+    closes = [100.0] * 70
+    
+    # Target date index is 59
+    target_idx = 59
+    opens[target_idx] = 100.0
+    highs[target_idx] = 101.0
+    lows[target_idx] = 99.0
+    closes[target_idx] = 100.0
+    
+    # Future dates for returns
+    # close after 5 trading days should be 105.0 (+5%)
+    for i in range(target_idx + 1, 70):
+        closes[i] = 105.0
+        
+    df = pd.DataFrame({
+        "Open": opens, "High": highs, "Low": lows, "Close": closes, "Volume": volumes
+    }, index=dates)
+    mock_ticker.return_value.history.return_value = df
+    
+    result = _analyze_stock_at_date("TEST", target_date)
+    assert result is not None
+    assert result["score"] == 0.0
+    assert result["signal"] == "HOLD"
+    assert result["return_5d"] == 5.0
+    assert result["outcome_5d"] == "win"

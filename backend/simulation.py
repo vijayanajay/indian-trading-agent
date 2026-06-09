@@ -401,7 +401,8 @@ def _analyze_stock_at_date(ticker: str, target_date: date, regime: str | None = 
             signal = "SELL"
             direction = -1
         else:
-            return None  # Neutral — skip
+            signal = "HOLD"
+            direction = 1  # For neutral signals, measure price change of holding long
 
         # === OUTCOME MEASUREMENT ===
         future_hist = hist.iloc[target_idx_pos + 1:]
@@ -487,14 +488,19 @@ def run_recommender_backtest(
 
     # Compute summary stats
     if all_results:
-        wins_5d = sum(1 for r in all_results if r.get("outcome_5d") == "win")
-        losses_5d = sum(1 for r in all_results if r.get("outcome_5d") == "loss")
-        with_5d = [r for r in all_results if r.get("return_5d") is not None]
-        avg_return_5d = sum(r["return_5d"] for r in with_5d) / len(with_5d) if with_5d else 0
+        active_results = [r for r in all_results if r.get("signal") != "HOLD"]
+        if active_results:
+            wins_5d = sum(1 for r in active_results if r.get("outcome_5d") == "win")
+            losses_5d = sum(1 for r in active_results if r.get("outcome_5d") == "loss")
+            with_5d = [r for r in active_results if r.get("return_5d") is not None]
+            avg_return_5d = sum(r["return_5d"] for r in with_5d) / len(with_5d) if with_5d else 0
+        else:
+            wins_5d = losses_5d = 0
+            avg_return_5d = 0
 
         # By signal type
         by_signal = {}
-        for sig in ["STRONG BUY", "BUY", "SELL", "STRONG SELL"]:
+        for sig in ["STRONG BUY", "BUY", "HOLD", "SELL", "STRONG SELL"]:
             sig_results = [r for r in all_results if r.get("signal") == sig and r.get("return_5d") is not None]
             if sig_results:
                 sig_wins = sum(1 for r in sig_results if r["return_5d"] > 0)

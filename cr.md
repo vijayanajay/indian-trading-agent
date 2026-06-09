@@ -82,3 +82,9 @@
 - Redesigned the Signal Performance page callouts to replace legacy instructions with a premium, pulse-animated info card highlighting the active L1-regularized logistic regression model's architecture.
 - Integrated the live `<RegimeBadge />` next to summary diagnostics on the Signal Performance page and simplified the table columns to display base weights next to real-world performance metrics.
 - Changed the gap-down filled signal direction from "BULLISH" to "BEARISH" (fade) in `backend/recommender.py` (`_analyze_stock()`), renamed the signal type to "Gap Down (Filled - Fade)", updated its default weight to `-1.5`, aligned the trade direction in `backend/performance.py` (`measure_gap_strategy()`) to set a short direction for filled gap-downs, and updated all corresponding unit tests.
+- Modified the historical backtest engine in `backend/simulation.py` (`_analyze_stock_at_date()`) to output a `"HOLD"` signal instead of `None` for neutral scores (-2.0 < score < 2.0) and track their outcomes with standard long direction.
+- Updated backtest summary statistics in `backend/simulation.py` (`run_recommender_backtest()`) to calculate active win rates and returns excluding `"HOLD"` signals, while tracking `"HOLD"` outcomes separately under the signal type breakdown.
+- Updated the Next.js frontend Simulation page (`frontend/src/app/simulation/page.tsx`) to render `"HOLD"` signals, color code them as gray, and properly exclude them from overall win rate calculations when reconstructing loaded runs.
+- Documented the model selection/survivorship bias on the Confidence Calibration page (`frontend/src/app/confidence-calibration/page.tsx`) to explain why win probabilities are conditional on non-neutral recommendations.
+- Added corresponding unit tests in `tests/backend/test_simulation.py` (`test_simulation_neutral_hold_signal`) to verify mapping and tracking of neutral signals.
+
