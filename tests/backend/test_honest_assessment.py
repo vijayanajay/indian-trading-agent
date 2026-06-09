@@ -786,6 +786,47 @@ def test_portfolio_drawdown_same_day_trade():
     assert abs(dd - 9.75) < 0.01
 
 
+def test_portfolio_drawdown_null_pnl():
+    """Verify that trades with NULL P&L are skipped from the drawdown simulation."""
+    from backend.honest_assessment import get_portfolio_drawdown
+
+    with get_db() as conn:
+        conn.execute("DELETE FROM paper_trades")
+
+    # Trade 1: Valid loss. Entry 2026-06-01, Exit 2026-06-02.
+    # Returns -50.0%, position_size_pct = 10.0%.
+    # Trade 2: Trade with NULL/None P&L (expired with price-fetching failure).
+    # Entry 2026-06-03, Exit 2026-06-07.
+    # Trade 3: Valid loss. Entry 2026-06-05, Exit 2026-06-06.
+    # Returns -50.0%, position_size_pct = 10.0%.
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_datetime, status, pnl_5d_pct, updated_at, position_size_pct, unrealized_pnl_pct)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("WT1", 100.0, "[]", "2026-06-01 10:00:00", "expired", -50.0, "2026-06-02 10:00:00", 10.0, 0.0)
+        )
+        conn.execute(
+            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_datetime, status, pnl_5d_pct, updated_at, position_size_pct, unrealized_pnl_pct)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("WT2", 100.0, "[]", "2026-06-03 10:00:00", "expired", None, "2026-06-07 10:00:00", 10.0, None)
+        )
+        conn.execute(
+            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_datetime, status, pnl_5d_pct, updated_at, position_size_pct, unrealized_pnl_pct)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("WT3", 100.0, "[]", "2026-06-05 10:00:00", "expired", -50.0, "2026-06-06 10:00:00", 10.0, 0.0)
+        )
+
+    dd = get_portfolio_drawdown()
+    # If WT2 is skipped:
+    # WT1 alloc 10% of 100k = 10k. returned = 5k. Cash = 95k. Equity = 95k. Drawdown = 5.0%.
+    # WT3 alloc 10% of 95k = 9.5k. returned = 4.75k. Cash = 90.25k. Equity = 90.25k. Drawdown = 9.75%.
+    # Max drawdown = 9.75%.
+    # If WT2 is not skipped (defaults to 0.0%):
+    # WT2 exit at 2026-06-07 returns 9.5k. Final equity goes back to 95.0k. Drawdown at the end is 5.0%.
+    assert abs(dd - 9.75) < 0.01
+
+
+
 
 
 

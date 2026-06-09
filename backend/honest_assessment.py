@@ -82,7 +82,11 @@ def get_portfolio_drawdown() -> float:
                         pnl = float(r[k])
                         break
             if pnl is None:
-                pnl = 0.0
+                import logging
+                logging.warning(
+                    f"Trade ID {r['id']} ({r['ticker']}) has NULL P&L and no fallback prices. Skipping from drawdown calculation."
+                )
+                continue
                 
             # Determine exit datetime
             exit_dt = None
