@@ -301,9 +301,11 @@ def _analyze_stock(ticker: str, allowed_strategies: dict = None) -> dict | None:
         return None
 
 
-def _recompute_confidence_and_counts(result: dict) -> dict:
-    """Recompute confidence and signal counts based on signals and filter adjustments."""
-    signals = result.get("signals", []) + result.get("filter_adjustments", [])
+def _recompute_confidence_and_counts(result: dict, include_filters: bool = False) -> dict:
+    """Recompute confidence and signal counts based on signals and optionally filter adjustments."""
+    signals = result.get("signals", [])
+    if include_filters:
+        signals = signals + result.get("filter_adjustments", [])
     bullish_signals = [s for s in signals if s.get("direction") == "BULLISH"]
     bearish_signals = [s for s in signals if s.get("direction") == "BEARISH"]
 

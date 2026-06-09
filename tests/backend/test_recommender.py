@@ -324,31 +324,39 @@ def test_recompute_confidence_and_counts_in_filters():
             "filter_adjustments": []
         }
 
-    # 1. Apply a bullish market bias flow (aligned count 4 -> HIGH confidence)
+    # 1. Apply a bullish market bias flow (should not inflate aligned count, remains 3 -> MEDIUM confidence)
     bias = {"bias": "BULLISH", "score_adjustment": 1.0, "reasoning": "FII buying"}
     out = _apply_market_bias(get_base_res(), bias)
-    assert out["bullish_signal_count"] == 4
+    assert out["bullish_signal_count"] == 3
     assert out["bearish_signal_count"] == 0
-    assert out["confidence"] == "HIGH"
+    assert out["confidence"] == "MEDIUM"
 
     # 2. Apply a bearish market bias flow instead (aligned count remains 3 -> MEDIUM confidence)
     bias_bear = {"bias": "BEARISH", "score_adjustment": -1.0, "reasoning": "FII selling"}
     out_bear = _apply_market_bias(get_base_res(), bias_bear)
     assert out_bear["bullish_signal_count"] == 3
-    assert out_bear["bearish_signal_count"] == 1
+    assert out_bear["bearish_signal_count"] == 0
     assert out_bear["confidence"] == "MEDIUM"
 
-    # 3. Apply a concentration filter (adding a BEARISH adjustment)
+    # 3. Apply a concentration filter (should not add BEARISH count)
     conc = {"sector": "IT", "score_adjustment": -2.0, "warnings": ["High risk"]}
     out_conc = _apply_concentration_filter(get_base_res(), conc)
     assert out_conc["bullish_signal_count"] == 3
-    assert out_conc["bearish_signal_count"] == 1
+    assert out_conc["bearish_signal_count"] == 0
     assert out_conc["confidence"] == "MEDIUM"
 
-    # 4. Apply an event filter (adding a BEARISH adjustment)
+    # 4. Apply an event filter (should not add BEARISH count)
     event = {"has_event": True, "score_adjustment": -2.0, "warning": "RBI Policy"}
     out_event = _apply_event_filter(get_base_res(), event)
     assert out_event["bullish_signal_count"] == 3
-    assert out_event["bearish_signal_count"] == 1
+    assert out_event["bearish_signal_count"] == 0
     assert out_event["confidence"] == "MEDIUM"
+
+    # 5. Verify direct calling of _recompute_confidence_and_counts with include_filters=True
+    from backend.recommender import _recompute_confidence_and_counts
+    res_with_filter = get_base_res()
+    res_with_filter["filter_adjustments"].append({"type": "FII/DII Flow (BULLISH)", "direction": "BULLISH", "value": "buying", "weight": 1.0})
+    out_direct = _recompute_confidence_and_counts(res_with_filter, include_filters=True)
+    assert out_direct["bullish_signal_count"] == 4
+    assert out_direct["confidence"] == "HIGH"
 
