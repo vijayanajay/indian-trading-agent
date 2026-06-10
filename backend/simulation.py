@@ -565,9 +565,10 @@ def run_recommender_backtest(
     while current <= end:
         if is_trading_day(current):
             dates.append(current)
-            current += timedelta(days=interval_days)
+            for _ in range(interval_days):
+                current = next_trading_day(current)
         else:
-            current += timedelta(days=1)
+            current = next_trading_day(current)
 
     all_results = []
 

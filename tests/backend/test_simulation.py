@@ -265,9 +265,10 @@ def test_run_recommender_backtest_dates(mock_regime, mock_analyze, mock_save, mo
         interval_days=5,
     )
     
-    # 2026-05-01 (Friday) -> skip 5 days -> 2026-05-06 (Wednesday) -> skip 5 days -> 2026-05-11 (Monday)
-    # -> skip 5 days -> 2026-05-16 (Saturday -> Sunday -> Monday 2026-05-18)
-    # -> skip 5 days -> 2026-05-23 (Saturday -> Sunday -> Monday 2026-05-25)
-    # -> skip 5 days -> 2026-05-30 (Saturday -> Sunday -> Monday 2026-06-01)
-    # Total dates tested: 6
-    assert result["dates_tested"] == 6
+    # 2026-05-01 (Friday) -> advance 5 trading days -> 2026-05-08 (Friday)
+    # -> advance 5 trading days -> 2026-05-15 (Friday)
+    # -> advance 5 trading days -> 2026-05-22 (Friday)
+    # -> advance 5 trading days -> 2026-05-29 (Friday)
+    # (The next step lands on 2026-06-05, which is past end_date 2026-06-01)
+    # Total dates tested: 5
+    assert result["dates_tested"] == 5
