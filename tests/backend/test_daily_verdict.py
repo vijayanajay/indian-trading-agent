@@ -137,14 +137,16 @@ def test_compute_daily_verdict_yellow_quiet(mock_recommend, mock_conc, mock_even
 @patch("backend.concentration.get_concentration_summary")
 @patch("backend.recommender.recommend")
 def test_compute_daily_verdict_exception_fallback(mock_recommend, mock_conc, mock_events, mock_bias):
-    # If all services fail, we should get 0 flags and default to yellow quiet
+    # If all services fail, we should get 0 flags and default to RED/STAND DOWN due to recommender failure
     mock_bias.side_effect = Exception("DB Error")
     mock_events.side_effect = Exception("API Error")
     mock_conc.side_effect = Exception("DB Error")
     mock_recommend.side_effect = Exception("Agent Error")
 
     res = compute_daily_verdict()
-    assert res["verdict"] == "YELLOW"
+    assert res["verdict"] == "RED"
+    assert res["label"] == "STAND DOWN"
+    assert res["min_conviction_required"] == "HIGH"
     assert res["filter_results"]["fii_dii"] is None
 
 def test_events_parsing():
@@ -200,9 +202,11 @@ def test_compute_daily_verdict_recommender_failed_forces_zero_trades(mock_recomm
     mock_recommend.side_effect = Exception("yfinance API down")
 
     res = compute_daily_verdict()
-    assert res["verdict"] == "YELLOW"
+    assert res["verdict"] == "RED"
+    assert res["label"] == "STAND DOWN"
     assert res["max_trades_today"] == 0
     assert res["recommended_position_size_pct"] == 0.0
+    assert res["min_conviction_required"] == "HIGH"
     assert any("Recommender unavailable" in c for c in res["caution_flags"])
 
 

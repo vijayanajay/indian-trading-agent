@@ -189,12 +189,12 @@ def compute_daily_verdict() -> dict:
     recommender_failed = (rec_counts is None)
 
     if recommender_failed:
-        if verdict != "RED":
-            verdict = "YELLOW"
-            label = "SELECTIVE"
+        verdict = "RED"
+        label = "STAND DOWN"
         action = "Recommender unavailable — cannot verify setups. Manage existing trades only."
         position_size = 0.0
         max_trades = 0
+        min_conviction = "HIGH"
 
     # Build reasoning
     reasoning_parts = []

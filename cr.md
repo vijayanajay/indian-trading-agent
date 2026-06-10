@@ -107,6 +107,7 @@
 - Created `/api/simulation/paper-trades/{trade_id}/hit-stop` endpoint and background monitoring checks in `backend/cron.py` to auto-trigger simulated stop-loss exits.
 - Rendered a premium Trade Plan card displaying Entry, Stop, Target, and R:R ratios in the frontend `TodayPicks.tsx` dashboard, disabling tracking for STRONG BUY picks until risk acknowledgement confirmation checkbox is checked.
 - Added comprehensive unit test coverage in `tests/backend/test_stop_loss.py` covering all stop-loss calculations, fallbacks, Kelly calibrations, and exit monitoring.
+- Refactored `backend/daily_verdict.py::compute_daily_verdict()` recommender failure handling to transition to a fail-safe `"RED"` verdict, `"STAND DOWN"` label, and `"HIGH"` `min_conviction` requirement, ensuring state consistency and eliminating UX ambiguity. Updated test assertions in `tests/backend/test_daily_verdict.py` accordingly.
 
 ## Rejected Changes
 
