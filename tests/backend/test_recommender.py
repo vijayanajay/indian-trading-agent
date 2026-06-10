@@ -221,18 +221,19 @@ def test_filter_adjustments_merged_and_hashed():
             assert len(res["strong_buys"]) == 1 or len(res["buys"]) == 1
             pick = res["strong_buys"][0] if res["strong_buys"] else res["buys"][0]
             
-            # The filter adjustment should be merged into signals
+            # The filter adjustment should NOT be merged into signals, but stay in filter_adjustments
             signal_types = [s["type"] for s in pick["signals"]]
-            assert "FII/DII Flow (BULLISH)" in signal_types
+            assert "FII/DII Flow (BULLISH)" not in signal_types
             assert "Strong Uptrend" in signal_types
             
-            # The filter_adjustments array should be cleared to prevent UI duplication
-            assert len(pick["filter_adjustments"]) == 0
+            # The filter_adjustments array should NOT be cleared (contain FII flow)
+            assert len(pick["filter_adjustments"]) == 1
+            assert "FII/DII Flow" in pick["filter_adjustments"][0]["type"]
             
-            # The honest assessment fingerprint should contain the FII flow signal
+            # The honest assessment fingerprint should ONLY contain the base signals (not the filters)
             fp = pick["honest_assessment"]["fingerprint"]
             from backend.honest_assessment import compute_fingerprint
-            expected_fp = compute_fingerprint(["FII/DII Flow (BULLISH)", "Strong Uptrend"], "UNKNOWN")
+            expected_fp = compute_fingerprint(["Strong Uptrend"], "UNKNOWN")
             assert fp == expected_fp
 
 

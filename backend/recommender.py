@@ -426,8 +426,7 @@ def _apply_market_bias(result: dict, bias: dict) -> dict:
 
     # Re-compute honest assessment with new score
     from backend.honest_assessment import get_honest_assessment
-    assessment_signals = result.get("signals", []) + result.get("filter_adjustments", [])
-    assessment = get_honest_assessment(assessment_signals, new_score, _ACTIVE_REGIME, risk_reward_ratio=result.get("risk_reward_ratio"))
+    assessment = get_honest_assessment(result.get("signals", []), new_score, _ACTIVE_REGIME, risk_reward_ratio=result.get("risk_reward_ratio"))
     prob_win_val = assessment.get("probability")
 
     if prob_win_val is not None:
@@ -492,8 +491,7 @@ def _apply_concentration_filter(result: dict, concentration_check: dict) -> dict
 
     # Re-compute honest assessment with new score
     from backend.honest_assessment import get_honest_assessment
-    assessment_signals = result.get("signals", []) + result.get("filter_adjustments", [])
-    assessment = get_honest_assessment(assessment_signals, new_score, _ACTIVE_REGIME, risk_reward_ratio=result.get("risk_reward_ratio"))
+    assessment = get_honest_assessment(result.get("signals", []), new_score, _ACTIVE_REGIME, risk_reward_ratio=result.get("risk_reward_ratio"))
     prob_win_val = assessment.get("probability")
 
     if prob_win_val is not None:
@@ -554,8 +552,7 @@ def _apply_event_filter(result: dict, event_filter: dict) -> dict:
 
     # Re-compute honest assessment with new score
     from backend.honest_assessment import get_honest_assessment
-    assessment_signals = result.get("signals", []) + result.get("filter_adjustments", [])
-    assessment = get_honest_assessment(assessment_signals, new_score, _ACTIVE_REGIME, risk_reward_ratio=result.get("risk_reward_ratio"))
+    assessment = get_honest_assessment(result.get("signals", []), new_score, _ACTIVE_REGIME, risk_reward_ratio=result.get("risk_reward_ratio"))
     prob_win_val = assessment.get("probability")
 
     if prob_win_val is not None:
@@ -683,11 +680,6 @@ def recommend(
                         result = _apply_concentration_filter(result, conc_check)
                     except Exception:
                         pass
-                # Merge filter adjustments into signals for database/fingerprint consistency
-                # and clear filter_adjustments so they don't duplicate on the UI
-                if result.get("filter_adjustments"):
-                    result["signals"] = result["signals"] + result["filter_adjustments"]
-                    result["filter_adjustments"] = []
                 all_results.append(result)
 
     # Separate by direction and sort
