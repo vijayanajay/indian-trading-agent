@@ -115,7 +115,9 @@ def ensure_db():
                 fii_flow_at_entry TEXT,
                 volatility_at_entry REAL,
                 position_size_pct REAL,
-                unrealized_pnl_pct REAL DEFAULT 0.0
+                unrealized_pnl_pct REAL DEFAULT 0.0,
+                stop_loss_price REAL,
+                risk_reward_ratio REAL
             );
 
             -- Daily Verdict snapshots — measures whether the verdict actually predicted Nifty's move
@@ -499,13 +501,17 @@ def add_paper_trade(data: dict) -> int:
         except Exception:
             position_size_pct = 5.0
 
+    stop_loss_price = data.get("stop_loss_price")
+    risk_reward_ratio = data.get("risk_reward_ratio")
+
     with get_db() as conn:
         cursor = conn.execute(
             """INSERT INTO paper_trades
             (ticker, source, strategy, direction, signal, score, confidence,
              success_probability, triggered_signals, entry_price, notes, regime_at_entry,
-             signal_fingerprint, fii_flow_at_entry, volatility_at_entry, position_size_pct)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+             signal_fingerprint, fii_flow_at_entry, volatility_at_entry, position_size_pct,
+             stop_loss_price, risk_reward_ratio)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 data.get("ticker"),
                 data.get("source", "manual"),
@@ -523,6 +529,8 @@ def add_paper_trade(data: dict) -> int:
                 fii_flow_at_entry,
                 volatility_at_entry,
                 position_size_pct,
+                stop_loss_price,
+                risk_reward_ratio,
             ),
         )
         return cursor.lastrowid
@@ -543,6 +551,8 @@ def _migrate_paper_trades_columns():
             ("volatility_at_entry", "REAL"),
             ("position_size_pct", "REAL"),
             ("unrealized_pnl_pct", "REAL DEFAULT 0.0"),
+            ("stop_loss_price", "REAL"),
+            ("risk_reward_ratio", "REAL"),
         ]:
             if col not in existing_paper:
                 try:

@@ -45,6 +45,8 @@ def open_paper_trade(
     triggered_signals: list | None = None,
     notes: str = None,
     position_size_pct: float | None = None,
+    stop_loss_price: float | None = None,
+    risk_reward_ratio: float | None = None,
 ) -> dict:
     """Open a new paper trade at current market price."""
     symbol = normalize_ticker(ticker)
@@ -59,6 +61,19 @@ def open_paper_trade(
 
     # Determine direction from signal
     direction = "SHORT" if signal and signal.upper() in ("SELL", "STRONG SELL", "UNDERWEIGHT", "SHORT") else "LONG"
+
+    # Auto-populate stop_loss_price and risk_reward_ratio if not provided
+    if stop_loss_price is None or risk_reward_ratio is None:
+        try:
+            from backend.recommender import _analyze_stock
+            analysis = _analyze_stock(ticker)
+            if analysis:
+                if stop_loss_price is None:
+                    stop_loss_price = analysis.get("suggested_stop_loss")
+                if risk_reward_ratio is None:
+                    risk_reward_ratio = analysis.get("risk_reward_ratio")
+        except Exception as e:
+            print(f"[Simulation] Failed to auto-populate stop loss / RR: {e}", flush=True)
 
     # Auto-populate strategy name from source if not given
     if not strategy:
@@ -77,6 +92,8 @@ def open_paper_trade(
         "entry_price": round(current_price, 2),
         "notes": notes,
         "position_size_pct": position_size_pct,
+        "stop_loss_price": stop_loss_price,
+        "risk_reward_ratio": risk_reward_ratio,
     })
 
     return {
@@ -86,6 +103,8 @@ def open_paper_trade(
         "direction": direction,
         "entry_price": round(current_price, 2),
         "strategy": strategy,
+        "stop_loss_price": stop_loss_price,
+        "risk_reward_ratio": risk_reward_ratio,
     }
 
 
@@ -136,6 +155,92 @@ def close_paper_trade(trade_id: int) -> dict:
         "pnl_pct": pnl_pct,
         "direction": direction,
     }
+
+
+def hit_paper_trade_stop(trade_id: int, current_price: float = None) -> dict:
+    """Close a paper trade because its stop-loss was hit."""
+    trades = list_paper_trades()
+    trade = next((t for t in trades if t["id"] == trade_id), None)
+    if not trade:
+        return {"ok": False, "error": "Trade not found"}
+
+    entry = trade["entry_price"]
+    sl = trade.get("stop_loss_price")
+    if not sl:
+        return {"ok": False, "error": "No stop-loss defined for this trade"}
+
+    direction = trade.get("direction", "LONG")
+    
+    # Close at the stop loss price (or current price if provided)
+    close_price = round(current_price if current_price is not None else sl, 2)
+    
+    multiplier = 1 if direction == "LONG" else -1
+    pnl_pct = round(multiplier * (close_price - entry) / entry * 100, 2) if entry else 0
+
+    with get_db() as conn:
+        conn.execute(
+            """UPDATE paper_trades SET
+                status = 'hit_stop',
+                unrealized_pnl_pct = 0.0,
+                notes = COALESCE(notes, '') || '\nStop-loss hit at Rs.' || ? || ' on ' || date('now') || '. P&L: ' || ? || '%',
+                updated_at = datetime('now')
+               WHERE id = ?""",
+            (close_price, pnl_pct, trade_id),
+        )
+
+    # Refresh prices and set status
+    refresh_paper_trade_prices(trade_id)
+    update_paper_trade_status(trade_id, "hit_stop")
+
+    return {
+        "ok": True,
+        "trade_id": trade_id,
+        "ticker": trade["ticker"],
+        "entry_price": entry,
+        "close_price": close_price,
+        "pnl_pct": pnl_pct,
+        "direction": direction,
+    }
+
+
+def check_and_trigger_stop_losses() -> int:
+    """Check all active paper trades and trigger hit_stop if price breached stop-loss."""
+    trades = list_paper_trades(status="active")
+    triggered_count = 0
+    for trade in trades:
+        sl = trade.get("stop_loss_price")
+        if not sl:
+            continue
+        ticker = trade["ticker"]
+        symbol = normalize_ticker(ticker)
+        direction = trade.get("direction", "LONG")
+        try:
+            t = yf.Ticker(symbol)
+            hist = t.history(period="1d")
+            if hist.empty:
+                continue
+            
+            current_low = float(hist.iloc[-1]["Low"])
+            current_high = float(hist.iloc[-1]["High"])
+            current_close = float(hist.iloc[-1]["Close"])
+            
+            breached = False
+            trigger_price = current_close
+            if direction == "LONG":
+                if current_low <= sl:
+                    breached = True
+                    trigger_price = min(sl, current_close)
+            else: # SHORT
+                if current_high >= sl:
+                    breached = True
+                    trigger_price = max(sl, current_close)
+                    
+            if breached:
+                hit_paper_trade_stop(trade["id"], trigger_price)
+                triggered_count += 1
+        except Exception as e:
+            print(f"[Stop Loss Cron] Error checking {ticker}: {e}", flush=True)
+    return triggered_count
 
 
 def _price_n_days_later(symbol: str, entry_date_str: str, n_trading_days: int) -> float | None:

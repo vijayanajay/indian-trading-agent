@@ -284,6 +284,16 @@ def _cron_loop():
         try:
             now = datetime.now()
             
+            # Check and close trades that hit stop loss
+            try:
+                from backend.simulation import check_and_trigger_stop_losses
+                logger.info("Checking paper trades for stop-loss breaches...")
+                triggered = check_and_trigger_stop_losses()
+                if triggered > 0:
+                    logger.info(f"Triggered stop-loss exits for {triggered} trade(s).")
+            except Exception as e:
+                logger.error(f"Error checking stop-losses in cron: {e}")
+
             # 1. Fingerprint backfill - run daily
             last_fp_run = get_setting("last_fingerprint_run")
             should_run_fp = True

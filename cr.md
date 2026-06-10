@@ -99,6 +99,12 @@
 - Added unit tests in `tests/backend/test_daily_verdict.py` to verify the recommender failure and zero-setup scenarios.
 - Fixed double-counting of risk factors in `backend/daily_verdict.py::compute_daily_verdict()` by passing `apply_market_bias=False`, `apply_event_filter=False`, and `apply_concentration_check=False` to the lightweight setup scan call to `recommend()`, ensuring macro overlays (FII bias, event calendars, sector limits) are not double-penalized at both stock-level scoring and top-level verdict layers.
 - Added a unit test in `tests/backend/test_daily_verdict.py` verifying that the daily verdict scanner disables recommender filters during setup-density checks.
+- Implemented a Pre-Trade Execution Checklist and Auto-Stop-Loss price calculation in `backend/recommender.py` and `backend/simulation.py`.
+- Added `stop_loss_price` and `risk_reward_ratio` columns to the `paper_trades` table schema in `backend/db.py` along with self-healing SQLite startup migrations.
+- Adjusted the Kelly Criterion formula in `backend/honest_assessment.py` to utilize the actual, dynamic Risk-to-Reward (R:R) ratio from the trade plan instead of relying on historical average win/loss returns.
+- Created `/api/simulation/paper-trades/{trade_id}/hit-stop` endpoint and background monitoring checks in `backend/cron.py` to auto-trigger simulated stop-loss exits.
+- Rendered a premium Trade Plan card displaying Entry, Stop, Target, and R:R ratios in the frontend `TodayPicks.tsx` dashboard, disabling tracking for STRONG BUY picks until risk acknowledgement confirmation checkbox is checked.
+- Added comprehensive unit test coverage in `tests/backend/test_stop_loss.py` covering all stop-loss calculations, fallbacks, Kelly calibrations, and exit monitoring.
 
 ## Rejected Changes
 

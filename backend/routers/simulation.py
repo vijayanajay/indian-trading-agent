@@ -31,6 +31,8 @@ class OpenTradeRequest(BaseModel):
     triggered_signals: list[dict] | None = None
     notes: str | None = None
     position_size_pct: float | None = None
+    stop_loss_price: float | None = None
+    risk_reward_ratio: float | None = None
 
 
 @router.post("/paper-trade")
@@ -47,7 +49,16 @@ def open_trade(req: OpenTradeRequest):
         triggered_signals=req.triggered_signals,
         notes=req.notes,
         position_size_pct=req.position_size_pct,
+        stop_loss_price=req.stop_loss_price,
+        risk_reward_ratio=req.risk_reward_ratio,
     )
+
+
+@router.post("/paper-trades/{trade_id}/hit-stop")
+def hit_stop(trade_id: int, current_price: float | None = Query(None)):
+    """Auto-close paper trade when stop-loss is breached."""
+    from backend.simulation import hit_paper_trade_stop
+    return hit_paper_trade_stop(trade_id, current_price)
 
 
 @router.get("/paper-trades")

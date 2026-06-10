@@ -167,13 +167,14 @@ def get_portfolio_drawdown() -> float:
         return 0.0
 
 
-def get_honest_assessment(signals: list[dict], score: float, regime: str | None) -> dict:
+def get_honest_assessment(signals: list[dict], score: float, regime: str | None, risk_reward_ratio: float | None = None) -> dict:
     """Assess a recommendation based on historical trade counts of its signal fingerprint.
 
     Args:
         signals: List of active signal dictionaries containing 'type'.
         score: The recommendation score.
         regime: Current market regime (BULL/BEAR/SIDEWAYS/HIGH_VOL).
+        risk_reward_ratio: Optional actual risk reward ratio from the trade plan.
 
     Returns:
         A dictionary containing honest assessment metrics.
@@ -390,7 +391,7 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None)
                             suggested_size = 0.0
                             message = "DO NOT TRADE (insufficient win/loss data for Kelly sizing)"
                         else:
-                            b = avg_win / abs(avg_loss)
+                            b = risk_reward_ratio if (risk_reward_ratio is not None and risk_reward_ratio > 0) else (avg_win / abs(avg_loss))
                             
                             # Full Kelly formula
                             q = 1.0 - p

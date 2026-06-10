@@ -39,6 +39,7 @@ export function TodayPicks({ universe = "nifty100" }: { universe?: string }) {
   const [data, setData] = useState<any>(null);
   const [lastRun, setLastRun] = useState<Date | null>(null);
   const [watchlistTickers, setWatchlistTickers] = useState<string[]>([]);
+  const [confirmations, setConfirmations] = useState<Record<string, boolean>>({});
 
   const load = async () => {
     setLoading(true);
@@ -49,6 +50,7 @@ export function TodayPicks({ universe = "nifty100" }: { universe?: string }) {
       ]);
       setData(result);
       setLastRun(new Date());
+      setConfirmations({});
 
       const wlTickers: string[] = (watchlist || []).map((w: any) => w.ticker);
       setWatchlistTickers(wlTickers);
@@ -135,75 +137,130 @@ export function TodayPicks({ universe = "nifty100" }: { universe?: string }) {
         {data && topPicks.length > 0 && (
           <div className="space-y-2">
             <p className="text-xs font-medium text-green-700 mb-2">BUY OPPORTUNITIES</p>
-            {topPicks.map((pick: any, i: number) => (
-              <div
-                key={pick.ticker}
-                className="flex items-center justify-between p-3 rounded-lg bg-green-50/50 border border-green-100 hover:bg-green-50 transition-colors"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <span className="text-sm font-semibold text-muted-foreground w-5">{i + 1}.</span>
-                  <TrendingUp className="h-4 w-4 text-green-600 flex-shrink-0" />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold">{pick.ticker}</span>
-                      {watchlistTickers.includes(pick.ticker) && (
-                        <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-300 text-xs">
-                          <Star className="h-2.5 w-2.5 mr-0.5 fill-yellow-600" />
-                          Watchlist
-                        </Badge>
-                      )}
-                      <span className="text-sm text-muted-foreground">Rs.{pick.price}</span>
-                      <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300 text-xs">
-                        {pick.direction}
-                      </Badge>
-                      <HonestAssessmentBadge assessment={pick.honest_assessment} />
+            {topPicks.map((pick: any, i: number) => {
+              const isStrongBuy = pick.direction === "STRONG BUY";
+              const isConfirmed = !isStrongBuy || !!confirmations[pick.ticker];
+              return (
+                <div
+                  key={pick.ticker}
+                  className="flex flex-col p-3 rounded-lg bg-green-50/50 border border-green-100 hover:bg-green-50 transition-colors space-y-2"
+                >
+                  <div className="flex items-center justify-between w-full">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="text-sm font-semibold text-muted-foreground w-5">{i + 1}.</span>
+                      <TrendingUp className="h-4 w-4 text-green-600 flex-shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold">{pick.ticker}</span>
+                          {watchlistTickers.includes(pick.ticker) && (
+                            <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-300 text-xs">
+                              <Star className="h-2.5 w-2.5 mr-0.5 fill-yellow-600" />
+                              Watchlist
+                            </Badge>
+                          )}
+                          <span className="text-sm text-muted-foreground">Rs.{pick.price}</span>
+                          <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300 text-xs">
+                            {pick.direction}
+                          </Badge>
+                          <HonestAssessmentBadge assessment={pick.honest_assessment} />
+                        </div>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {pick.bullish_signal_count} signals · RSI {pick.rsi || "—"}
+                        </p>
+                      </div>
                     </div>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {pick.bullish_signal_count} signals · RSI {pick.rsi || "—"}
-                    </p>
+                    <div className="flex gap-1">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        title={isStrongBuy && !isConfirmed ? "Please confirm stop-loss placement first" : "Open paper trade (simulated)"}
+                        disabled={isStrongBuy && !isConfirmed}
+                        onClick={async () => {
+                          try {
+                            await openPaperTrade({
+                              ticker: pick.ticker,
+                              source: "recommendation",
+                              strategy: "Recommendation Engine (combined signals)",
+                              signal: pick.direction,
+                              score: pick.score,
+                              confidence: pick.confidence,
+                              success_probability: pick.honest_assessment?.probability,
+                              triggered_signals: pick.signals,
+                              position_size_pct: pick.suggested_position_size_pct,
+                              stop_loss_price: pick.suggested_stop_loss,
+                              risk_reward_ratio: pick.risk_reward_ratio,
+                            } as any);
+                            toast.success(`${pick.ticker} tracked at Rs.${pick.price}`, {
+                              description: "Paper trade opened. Check P&L at 1/3/5/10 days on the Simulation page.",
+                              duration: 6000,
+                              action: {
+                                label: "View Simulation",
+                                onClick: () => { window.location.href = "/simulation"; },
+                              },
+                            });
+                          } catch (e: any) {
+                            toast.error(e.message || "Failed to track");
+                          }
+                        }}
+                      >
+                        <FlaskConical className="h-3 w-3 mr-1" /> Track
+                      </Button>
+                      <Link href={`/analysis?ticker=${pick.ticker}`}>
+                        <Button size="sm" variant="outline">
+                          Analyze <ArrowRight className="h-3 w-3 ml-1" />
+                        </Button>
+                      </Link>
+                    </div>
                   </div>
+
+                  {isStrongBuy && (
+                    <div className="p-3 bg-white border border-green-200 rounded-lg text-xs space-y-2 w-full shadow-sm">
+                      <div className="font-semibold text-green-800 flex items-center gap-1 text-[11px] sm:text-xs">
+                        📋 Trade Plan (Risk-Defined Entry)
+                      </div>
+                      <div className="grid grid-cols-4 gap-2 text-center bg-gray-50/50 p-2 rounded border border-gray-100">
+                        <div>
+                          <div className="text-[10px] text-muted-foreground uppercase font-medium">Entry</div>
+                          <div className="font-mono font-semibold text-gray-900">Rs.{pick.price}</div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-muted-foreground uppercase font-medium">Stop Loss</div>
+                          <div className="font-mono font-semibold text-red-600">Rs.{pick.suggested_stop_loss || "—"}</div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-muted-foreground uppercase font-medium">Target</div>
+                          <div className="font-mono font-semibold text-green-600">Rs.{pick.target_price || "—"}</div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-muted-foreground uppercase font-medium">R:R Ratio</div>
+                          <div className="font-mono font-semibold text-purple-600">{pick.risk_reward_ratio ? `${pick.risk_reward_ratio}:1` : "—"}</div>
+                        </div>
+                      </div>
+                      {pick.invalidation_reason && (
+                        <p className="text-[10px] text-muted-foreground italic leading-normal">
+                          Reason: {pick.invalidation_reason}
+                        </p>
+                      )}
+                      <div className="flex items-center gap-2 mt-1.5 pt-1.5 border-t border-gray-100">
+                        <input
+                          type="checkbox"
+                          id={`confirm-${pick.ticker}`}
+                          checked={!!confirmations[pick.ticker]}
+                          onChange={(e) => setConfirmations({ ...confirmations, [pick.ticker]: e.target.checked })}
+                          className="h-3.5 w-3.5 rounded border-gray-300 text-green-600 focus:ring-green-500 cursor-pointer"
+                        />
+                        <label
+                          htmlFor={`confirm-${pick.ticker}`}
+                          className="text-[10px] font-medium text-gray-700 cursor-pointer select-none"
+                        >
+                          I confirm stop-loss is placed before entry.
+                        </label>
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <div className="flex gap-1">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    title="Open paper trade (simulated)"
-                    onClick={async () => {
-                      try {
-                        await openPaperTrade({
-                          ticker: pick.ticker,
-                          source: "recommendation",
-                          strategy: "Recommendation Engine (combined signals)",
-                          signal: pick.direction,
-                          score: pick.score,
-                          confidence: pick.confidence,
-                          success_probability: pick.honest_assessment?.probability,
-                          triggered_signals: pick.signals,
-                          position_size_pct: pick.suggested_position_size_pct,
-                        } as any);
-                        toast.success(`${pick.ticker} tracked at Rs.${pick.price}`, {
-                          description: "Paper trade opened. Check P&L at 1/3/5/10 days on the Simulation page.",
-                          duration: 6000,
-                          action: {
-                            label: "View Simulation",
-                            onClick: () => { window.location.href = "/simulation"; },
-                          },
-                        });
-                      } catch (e: any) {
-                        toast.error(e.message || "Failed to track");
-                      }
-                    }}
-                  >
-                    <FlaskConical className="h-3 w-3 mr-1" /> Track
-                  </Button>
-                  <Link href={`/analysis?ticker=${pick.ticker}`}>
-                    <Button size="sm" variant="outline">
-                      Analyze <ArrowRight className="h-3 w-3 ml-1" />
-                    </Button>
-                  </Link>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
