@@ -260,7 +260,7 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None,
                         fp = compute_fingerprint(sig_types, reg)
                     
                     if fp == fingerprint:
-                        key = (r["ticker"], r["entry_date"])
+                        key = (r["ticker"], r["entry_date"], fp)
                         if key not in unique_trades or r["source"] == "paper":
                             unique_trades[key] = r
 
@@ -367,7 +367,7 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None,
                                     fp = compute_fingerprint(sig_types, reg)
                                 
                                 if fp == fingerprint:
-                                    key = (r["ticker"], r["entry_date"])
+                                    key = (r["ticker"], r["entry_date"], fp)
                                     if key not in unique_pnl_trades or r["source"] == "paper":
                                         unique_pnl_trades[key] = r
                                         

@@ -295,11 +295,11 @@ def _train_signal_model_internal() -> dict:
         with get_db() as conn:
             rows = conn.execute(
                 """
-                SELECT 'paper' as source, ticker, entry_date, triggered_signals, regime_at_entry, pnl_5d_pct
+                SELECT 'paper' as source, ticker, entry_date, triggered_signals, regime_at_entry, pnl_5d_pct, signal_fingerprint
                 FROM paper_trades
                 WHERE pnl_5d_pct IS NOT NULL AND triggered_signals IS NOT NULL
                 UNION ALL
-                SELECT 'shadow' as source, ticker, signal_date as entry_date, triggered_signals, regime_at_entry, pnl_5d_pct
+                SELECT 'shadow' as source, ticker, signal_date as entry_date, triggered_signals, regime_at_entry, pnl_5d_pct, signal_fingerprint
                 FROM shadow_trades
                 WHERE pnl_5d_pct IS NOT NULL AND triggered_signals IS NOT NULL
                 """
@@ -311,7 +311,19 @@ def _train_signal_model_internal() -> dict:
     # De-duplicate in Python deterministically: prefer paper over shadow
     unique_trades = {}
     for r in rows:
-        key = (r["ticker"], r["entry_date"])
+        fp = r["signal_fingerprint"]
+        if not fp:
+            try:
+                signals = json.loads(r["triggered_signals"]) if isinstance(r["triggered_signals"], str) else r["triggered_signals"]
+            except Exception:
+                signals = []
+            if not isinstance(signals, list):
+                signals = []
+            sig_types = [s.get("type") for s in signals if isinstance(s, dict) and s.get("type")]
+            from backend.honest_assessment import compute_fingerprint
+            fp = compute_fingerprint(sig_types, r["regime_at_entry"])
+
+        key = (r["ticker"], r["entry_date"], fp)
         if key not in unique_trades or r["source"] == "paper":
             unique_trades[key] = r
 

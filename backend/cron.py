@@ -180,10 +180,10 @@ def recompute_fingerprints_and_features_for_last_180_days() -> dict:
                 """
             ).fetchall()
 
-            # Deduplicate by (ticker, entry_date), prioritizing paper trades
+            # Deduplicate by (ticker, entry_date, signal_fingerprint), prioritizing paper trades
             unique_trades = {}
             for r in rows:
-                key = (r["ticker"], r["entry_date"])
+                key = (r["ticker"], r["entry_date"], r["signal_fingerprint"])
                 if key not in unique_trades or r["source"] == "paper":
                     unique_trades[key] = r
 

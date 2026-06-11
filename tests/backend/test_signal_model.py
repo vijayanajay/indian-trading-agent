@@ -209,7 +209,7 @@ def test_retraining_trigger():
 
 
 def test_deterministic_deduplication():
-    """Verify that paper trades are preferred over shadow trades on duplicate ticker/entry_date."""
+    """Verify that paper trades are preferred over shadow trades on duplicate ticker/entry_date/fingerprint."""
     # Insert 50 baseline trades to satisfy threshold
     with get_db() as conn:
         for i in range(50):
@@ -221,12 +221,12 @@ def test_deterministic_deduplication():
                 (f"TC_{i}", 100.0, signals_json, "BULL", pnl, f"fp_{i}", "2026-06-01"),
             )
         
-        # Now insert a duplicate shadow trade for TC_0 on 2026-06-01
-        # It has a massive negative P&L. If this shadow trade were selected, the outcome would change.
+        # Now insert a duplicate shadow trade for TC_0 on 2026-06-01 with the SAME fingerprint (signals & regime)
+        # It has a massive negative P&L. If this shadow trade were NOT discarded, the outcome for TC_0 would change from success (1.0) to failure (0.0).
         conn.execute(
             """INSERT INTO shadow_trades (ticker, entry_price, triggered_signals, regime_at_entry, pnl_5d_pct, signal_fingerprint, signal_date)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            ("TC_0", 100.0, json.dumps([{"type": "Volume Spike (Bearish)"}]), "BEAR", -100.0, "fp_shadow", "2026-06-01"),
+            ("TC_0", 100.0, json.dumps([{"type": "Volume Spike (Bullish)"}]), "BULL", -100.0, "fp_0", "2026-06-01"),
         )
     
     # We patch fit_l1_logistic_regression to inspect the inputs X and y that train_signal_model prepares
@@ -243,10 +243,49 @@ def test_deterministic_deduplication():
         args, kwargs = mock_fit.call_args
         X_passed, y_passed = args[0], args[1]
         
-        # regime_BEAR should not be present in any sample, because the duplicate shadow trade is BEAR and should have been discarded
+        # TC_0 should preserve the paper trade success label (1.0), not the shadow trade failure (-100.0 -> 0.0)
+        assert y_passed[0] == 1.0, "Duplicate shadow trade was not discarded (paper trade outcome not preferred)!"
+
+
+def test_different_fingerprints_not_deduplicated():
+    """Verify that paper and shadow trades for the same ticker on the same day are BOTH kept if they have different fingerprints."""
+    # Insert 50 baseline trades to satisfy threshold
+    with get_db() as conn:
+        for i in range(50):
+            pnl = 2.0 if i % 2 == 0 else -1.5
+            signals_json = json.dumps([{"type": "Volume Spike (Bullish)"}])
+            conn.execute(
+                """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, regime_at_entry, pnl_5d_pct, signal_fingerprint, entry_date)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (f"TC_{i}", 100.0, signals_json, "BULL", pnl, f"fp_{i}", "2026-06-01"),
+            )
+        
+        # Now insert a shadow trade for TC_0 on 2026-06-01 with a DIFFERENT fingerprint (Volume Spike (Bearish) and BEAR regime)
+        # Since it is a different setup, it should NOT be discarded. Both should be trained on.
+        conn.execute(
+            """INSERT INTO shadow_trades (ticker, entry_price, triggered_signals, regime_at_entry, pnl_5d_pct, signal_fingerprint, signal_date)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            ("TC_0", 100.0, json.dumps([{"type": "Volume Spike (Bearish)"}]), "BEAR", -100.0, "fp_shadow", "2026-06-01"),
+        )
+    
+    with patch("backend.signal_model.fit_l1_logistic_regression") as mock_fit:
+        mock_fit.return_value = np.zeros(28)
+        
+        res = train_signal_model()
+        
+        # We expect 51 unique samples (the shadow trade was kept because of the different fingerprint)
+        assert res["n_samples"] == 51
+        
+        # Inspect the X passed to fit_l1_logistic_regression to ensure the BEAR regime sample is present in training folds
+        assert mock_fit.called
         regime_bear_idx = FEATURE_NAMES.index("regime_BEAR")
-        for features in X_passed:
-            assert features[regime_bear_idx] == 0.0, "Duplicate shadow trade with BEAR regime was not discarded!"
+        bear_found = False
+        for call in mock_fit.call_args_list:
+            X_passed = call[0][0]
+            if any(features[regime_bear_idx] == 1.0 for features in X_passed):
+                bear_found = True
+                break
+        assert bear_found, "The distinct shadow trade with BEAR regime was incorrectly discarded!"
 
 
 def test_retraining_concurrency_lock():
