@@ -117,6 +117,181 @@ def compute_atr(highs, lows, closes, period=14):
     return float(np.mean(tr_list[-period:]))
 
 
+
+
+def _update_trade_plan(result: dict) -> None:
+    """Recompute suggested_stop_loss, target_price, and risk_reward_ratio
+    based on the current direction and price history inside the result dictionary.
+    """
+    direction = result.get("direction", "NEUTRAL")
+
+    # Map direction to trade_dir (LONG, SHORT, or NEUTRAL)
+    if direction in ("STRONG BUY", "BUY"):
+        trade_dir = "LONG"
+    elif direction in ("STRONG SELL", "SELL"):
+        trade_dir = "SHORT"
+    else:
+        trade_dir = "NEUTRAL"
+
+    # If trade_dir is NEUTRAL, clear trade plan parameters
+    if trade_dir == "NEUTRAL":
+        result["suggested_stop_loss"] = None
+        result["target_price"] = None
+        result["risk_reward_ratio"] = None
+        result["invalidation_reason"] = None
+        return
+
+    # Extract price history
+    highs = result.get("_highs")
+    lows = result.get("_lows")
+    closes = result.get("_closes")
+    current_close = result.get("price")
+
+    if highs is None or lows is None or closes is None or current_close is None:
+        # If no history is present (e.g. in basic unit tests), do not recalculate.
+        return
+
+    from backend.routers.strategies import _find_support_resistance
+    sr = _find_support_resistance(highs, lows, closes)
+    atr_val = compute_atr(highs, lows, closes, 14)
+    fallback_dist = min(0.02 * current_close, 2 * atr_val) if atr_val > 0 else 0.02 * current_close
+
+    suggested_stop_loss = None
+    invalidation_reason = None
+    target_price = None
+    risk_reward_ratio = None
+
+    if trade_dir == "LONG":
+        nearest_support = sr["supports"][0]["level"] if sr["supports"] else None
+        if nearest_support and current_close - nearest_support > 0 and (current_close - nearest_support) <= fallback_dist:
+            suggested_stop_loss = round(nearest_support, 2)
+            invalidation_reason = f"Nearest support level of Rs. {nearest_support:.2f} breached"
+        else:
+            suggested_stop_loss = round(current_close - fallback_dist, 2)
+            invalidation_reason = "Max 2% ATR-based fallback stop-loss breached"
+
+        # Target calculation (nearest resistance or 2x risk)
+        nearest_resistance = sr["resistances"][0]["level"] if sr["resistances"] else None
+        risk = current_close - suggested_stop_loss
+        if not nearest_resistance or nearest_resistance <= current_close:
+            target_price = round(current_close + 2 * (risk if risk > 0 else 0.01 * current_close), 2)
+        else:
+            target_price = round(nearest_resistance, 2)
+
+        reward = target_price - current_close
+        risk_reward_ratio = round(reward / risk, 2) if risk > 0 else 2.0
+
+    elif trade_dir == "SHORT":
+        nearest_resistance = sr["resistances"][0]["level"] if sr["resistances"] else None
+        if nearest_resistance and nearest_resistance - current_close > 0 and (nearest_resistance - current_close) <= fallback_dist:
+            suggested_stop_loss = round(nearest_resistance, 2)
+            invalidation_reason = f"Nearest resistance level of Rs. {nearest_resistance:.2f} breached"
+        else:
+            suggested_stop_loss = round(current_close + fallback_dist, 2)
+            invalidation_reason = "Max 2% ATR-based fallback stop-loss breached"
+
+        # Target calculation (nearest support or 2x risk)
+        nearest_support = sr["supports"][0]["level"] if sr["supports"] else None
+        risk = suggested_stop_loss - current_close
+        if not nearest_support or nearest_support >= current_close:
+            target_price = round(current_close - 2 * (risk if risk > 0 else 0.01 * current_close), 2)
+        else:
+            target_price = round(nearest_support, 2)
+
+        reward = current_close - target_price
+        risk_reward_ratio = round(reward / risk, 2) if risk > 0 else 2.0
+
+    result["suggested_stop_loss"] = suggested_stop_loss
+    result["target_price"] = target_price
+    result["risk_reward_ratio"] = risk_reward_ratio
+    result["invalidation_reason"] = invalidation_reason
+
+
+def _recompute_assessment_and_trade_plan(result: dict, new_score: float) -> None:
+    """Recompute honest assessment, direction, and trade plan (stop-loss, target, R:R)
+    based on a new score.
+    """
+    result["score"] = new_score
+
+    # 1. First-pass honest assessment using current risk_reward_ratio
+    from backend.honest_assessment import get_honest_assessment
+    assessment_temp = get_honest_assessment(
+        result.get("signals", []),
+        new_score,
+        _ACTIVE_REGIME,
+        risk_reward_ratio=result.get("risk_reward_ratio")
+    )
+
+    # 2. First-pass direction determination
+    prob_win_val = assessment_temp.get("probability")
+    if prob_win_val is not None:
+        prob_win = prob_win_val / 100.0
+        if prob_win >= 0.65:
+            direction = "STRONG BUY"
+        elif prob_win >= 0.55:
+            direction = "BUY"
+        elif prob_win <= 0.35:
+            direction = "STRONG SELL"
+        elif prob_win <= 0.45:
+            direction = "SELL"
+        else:
+            direction = "NEUTRAL"
+    else:
+        if new_score >= 4.0:
+            direction = "STRONG BUY"
+        elif new_score >= 2.0:
+            direction = "BUY"
+        elif new_score <= -4.0:
+            direction = "STRONG SELL"
+        elif new_score <= -2.0:
+            direction = "SELL"
+        else:
+            direction = "NEUTRAL"
+
+    result["direction"] = direction
+
+    # 3. Recalculate trade plan based on the new direction
+    _update_trade_plan(result)
+
+    # 4. Second-pass honest assessment using the newly calculated risk_reward_ratio
+    assessment = get_honest_assessment(
+        result.get("signals", []),
+        new_score,
+        _ACTIVE_REGIME,
+        risk_reward_ratio=result.get("risk_reward_ratio")
+    )
+
+    # 5. Final direction determination based on second-pass assessment
+    prob_win_val = assessment.get("probability")
+    if prob_win_val is not None:
+        prob_win = prob_win_val / 100.0
+        if prob_win >= 0.65:
+            direction = "STRONG BUY"
+        elif prob_win >= 0.55:
+            direction = "BUY"
+        elif prob_win <= 0.35:
+            direction = "STRONG SELL"
+        elif prob_win <= 0.45:
+            direction = "SELL"
+        else:
+            direction = "NEUTRAL"
+    else:
+        if new_score >= 4.0:
+            direction = "STRONG BUY"
+        elif new_score >= 2.0:
+            direction = "BUY"
+        elif new_score <= -4.0:
+            direction = "STRONG SELL"
+        elif new_score <= -2.0:
+            direction = "SELL"
+        else:
+            direction = "NEUTRAL"
+
+    result["direction"] = direction
+    result["honest_assessment"] = assessment
+    result["suggested_position_size_pct"] = assessment.get("suggested_position_size_pct")
+
+
 def _analyze_stock(ticker: str, allowed_strategies: dict = None) -> dict | None:
     """Analyze a single stock and return signals + score."""
     if allowed_strategies is None:
@@ -275,60 +450,29 @@ def _analyze_stock(ticker: str, allowed_strategies: dict = None) -> dict | None:
             else:
                 trade_dir = "NEUTRAL"
 
-        # === COMPUTE STOP-LOSS, TARGET, AND RISK-TO-REWARD ===
-        suggested_stop_loss = None
-        invalidation_reason = None
-        target_price = None
-        risk_reward_ratio = None
+        price_change_day = (current_close - prev_close) / prev_close * 100
 
-        if trade_dir != "NEUTRAL":
-            from backend.routers.strategies import _find_support_resistance
-            sr = _find_support_resistance(highs, lows, closes)
-            atr_val = compute_atr(highs, lows, closes, 14)
-            fallback_dist = min(0.02 * current_close, 2 * atr_val) if atr_val > 0 else 0.02 * current_close
+        # Construct the initial result dictionary (replaces inline block)
+        result = {
+            "ticker": ticker,
+            "symbol": symbol,
+            "price": round(current_close, 2),
+            "change_pct": round(price_change_day, 2),
+            "rsi": round(rsi, 1) if rsi else None,
+            "score": round(score, 2),
+            "direction": "BUY" if trade_dir == "LONG" else ("SELL" if trade_dir == "SHORT" else "NEUTRAL"),
+            "signals": signals,
+            "filter_adjustments": [],
+            "_highs": highs,
+            "_lows": lows,
+            "_closes": closes,
+        }
 
-            if trade_dir == "LONG":
-                nearest_support = sr["supports"][0]["level"] if sr["supports"] else None
-                if nearest_support and current_close - nearest_support > 0 and (current_close - nearest_support) <= fallback_dist:
-                    suggested_stop_loss = round(nearest_support, 2)
-                    invalidation_reason = f"Nearest support level of Rs. {nearest_support:.2f} breached"
-                else:
-                    suggested_stop_loss = round(current_close - fallback_dist, 2)
-                    invalidation_reason = "Max 2% ATR-based fallback stop-loss breached"
-
-                # Target calculation (nearest resistance or 2x risk)
-                nearest_resistance = sr["resistances"][0]["level"] if sr["resistances"] else None
-                risk = current_close - suggested_stop_loss
-                if not nearest_resistance or nearest_resistance <= current_close:
-                    target_price = round(current_close + 2 * (risk if risk > 0 else 0.01 * current_close), 2)
-                else:
-                    target_price = round(nearest_resistance, 2)
-
-                reward = target_price - current_close
-                risk_reward_ratio = round(reward / risk, 2) if risk > 0 else 2.0
-
-            elif trade_dir == "SHORT":
-                nearest_resistance = sr["resistances"][0]["level"] if sr["resistances"] else None
-                if nearest_resistance and nearest_resistance - current_close > 0 and (nearest_resistance - current_close) <= fallback_dist:
-                    suggested_stop_loss = round(nearest_resistance, 2)
-                    invalidation_reason = f"Nearest resistance level of Rs. {nearest_resistance:.2f} breached"
-                else:
-                    suggested_stop_loss = round(current_close + fallback_dist, 2)
-                    invalidation_reason = "Max 2% ATR-based fallback stop-loss breached"
-
-                # Target calculation (nearest support or 2x risk)
-                nearest_support = sr["supports"][0]["level"] if sr["supports"] else None
-                risk = suggested_stop_loss - current_close
-                if not nearest_support or nearest_support >= current_close:
-                    target_price = round(current_close - 2 * (risk if risk > 0 else 0.01 * current_close), 2)
-                else:
-                    target_price = round(nearest_support, 2)
-
-                reward = current_close - target_price
-                risk_reward_ratio = round(reward / risk, 2) if risk > 0 else 2.0
+        # Calculate trade plan (first pass)
+        _update_trade_plan(result)
 
         # Run second-pass of honest assessment using the calculated risk_reward_ratio
-        assessment = get_honest_assessment(signals, score, _ACTIVE_REGIME, risk_reward_ratio)
+        assessment = get_honest_assessment(signals, score, _ACTIVE_REGIME, result.get("risk_reward_ratio"))
         prob_win_val = assessment.get("probability")
         
         if prob_win_val is not None:
@@ -355,6 +499,13 @@ def _analyze_stock(ticker: str, allowed_strategies: dict = None) -> dict | None:
             else:
                 direction = "NEUTRAL"
 
+        result["direction"] = direction
+        result["honest_assessment"] = assessment
+        result["suggested_position_size_pct"] = assessment.get("suggested_position_size_pct")
+
+        # Recalculate/finalize trade plan for the final direction
+        _update_trade_plan(result)
+
         # Count aligned signals
         bullish_signals = [s for s in signals if s["direction"] == "BULLISH"]
         bearish_signals = [s for s in signals if s["direction"] == "BEARISH"]
@@ -363,30 +514,14 @@ def _analyze_stock(ticker: str, allowed_strategies: dict = None) -> dict | None:
         aligned_count = max(len(bullish_signals), len(bearish_signals))
         confidence = "HIGH" if aligned_count >= 4 else ("MEDIUM" if aligned_count >= 2 else "LOW")
 
-        price_change_day = (current_close - prev_close) / prev_close * 100
-
-        return {
-            "ticker": ticker,
-            "symbol": symbol,
-            "price": round(current_close, 2),
-            "change_pct": round(price_change_day, 2),
-            "rsi": round(rsi, 1) if rsi else None,
-            "score": round(score, 2),
-            "direction": direction,
+        result.update({
             "confidence": confidence,
-            "honest_assessment": assessment,
-            "suggested_position_size_pct": assessment.get("suggested_position_size_pct"),
-            "suggested_stop_loss": suggested_stop_loss,
-            "target_price": target_price,
-            "risk_reward_ratio": risk_reward_ratio,
-            "invalidation_reason": invalidation_reason,
-            "signals": signals,
-            "filter_adjustments": [],
             "bullish_signal_count": len(bullish_signals),
             "bearish_signal_count": len(bearish_signals),
             "near_support": round(recent_low, 2),
             "near_resistance": round(recent_high, 2),
-        }
+        })
+        return result
     except Exception as e:
         return None
 
@@ -424,40 +559,9 @@ def _apply_market_bias(result: dict, bias: dict) -> dict:
     }
     result.setdefault("filter_adjustments", []).append(fii_signal)
 
-    # Re-compute honest assessment with new score
-    from backend.honest_assessment import get_honest_assessment
-    assessment = get_honest_assessment(result.get("signals", []), new_score, _ACTIVE_REGIME, risk_reward_ratio=result.get("risk_reward_ratio"))
-    prob_win_val = assessment.get("probability")
+    # Re-compute honest assessment, direction, and trade plan
+    _recompute_assessment_and_trade_plan(result, new_score)
 
-    if prob_win_val is not None:
-        prob_win = prob_win_val / 100.0
-        if prob_win >= 0.65:
-            direction = "STRONG BUY"
-        elif prob_win >= 0.55:
-            direction = "BUY"
-        elif prob_win <= 0.35:
-            direction = "STRONG SELL"
-        elif prob_win <= 0.45:
-            direction = "SELL"
-        else:
-            direction = "NEUTRAL"
-    else:
-        # Re-classify direction based on new score
-        if new_score >= 4.0:
-            direction = "STRONG BUY"
-        elif new_score >= 2.0:
-            direction = "BUY"
-        elif new_score <= -4.0:
-            direction = "STRONG SELL"
-        elif new_score <= -2.0:
-            direction = "SELL"
-        else:
-            direction = "NEUTRAL"
-
-    result["score"] = new_score
-    result["direction"] = direction
-    result["honest_assessment"] = assessment
-    result["suggested_position_size_pct"] = assessment.get("suggested_position_size_pct")
     result["market_bias_applied"] = bias["bias"]
     result["market_bias_score_adj"] = adj
 
@@ -489,40 +593,8 @@ def _apply_concentration_filter(result: dict, concentration_check: dict) -> dict
     result["concentration_warning"] = "; ".join(warnings) if warnings else None
     result["concentration_breach"] = concentration_check.get("would_breach", False)
 
-    # Re-compute honest assessment with new score
-    from backend.honest_assessment import get_honest_assessment
-    assessment = get_honest_assessment(result.get("signals", []), new_score, _ACTIVE_REGIME, risk_reward_ratio=result.get("risk_reward_ratio"))
-    prob_win_val = assessment.get("probability")
-
-    if prob_win_val is not None:
-        prob_win = prob_win_val / 100.0
-        if prob_win >= 0.65:
-            direction = "STRONG BUY"
-        elif prob_win >= 0.55:
-            direction = "BUY"
-        elif prob_win <= 0.35:
-            direction = "STRONG SELL"
-        elif prob_win <= 0.45:
-            direction = "SELL"
-        else:
-            direction = "NEUTRAL"
-    else:
-        # Re-classify direction based on new score
-        if new_score >= 4.0:
-            direction = "STRONG BUY"
-        elif new_score >= 2.0:
-            direction = "BUY"
-        elif new_score <= -4.0:
-            direction = "STRONG SELL"
-        elif new_score <= -2.0:
-            direction = "SELL"
-        else:
-            direction = "NEUTRAL"
-
-    result["score"] = new_score
-    result["direction"] = direction
-    result["honest_assessment"] = assessment
-    result["suggested_position_size_pct"] = assessment.get("suggested_position_size_pct")
+    # Re-compute honest assessment, direction, and trade plan
+    _recompute_assessment_and_trade_plan(result, new_score)
 
     return _recompute_confidence_and_counts(result)
 
@@ -550,40 +622,8 @@ def _apply_event_filter(result: dict, event_filter: dict) -> dict:
     result["event_warning"] = warning
     result["upcoming_events"] = event_filter.get("events", [])
 
-    # Re-compute honest assessment with new score
-    from backend.honest_assessment import get_honest_assessment
-    assessment = get_honest_assessment(result.get("signals", []), new_score, _ACTIVE_REGIME, risk_reward_ratio=result.get("risk_reward_ratio"))
-    prob_win_val = assessment.get("probability")
-
-    if prob_win_val is not None:
-        prob_win = prob_win_val / 100.0
-        if prob_win >= 0.65:
-            direction = "STRONG BUY"
-        elif prob_win >= 0.55:
-            direction = "BUY"
-        elif prob_win <= 0.35:
-            direction = "STRONG SELL"
-        elif prob_win <= 0.45:
-            direction = "SELL"
-        else:
-            direction = "NEUTRAL"
-    else:
-        # Re-classify
-        if new_score >= 4.0:
-            direction = "STRONG BUY"
-        elif new_score >= 2.0:
-            direction = "BUY"
-        elif new_score <= -4.0:
-            direction = "STRONG SELL"
-        elif new_score <= -2.0:
-            direction = "SELL"
-        else:
-            direction = "NEUTRAL"
-
-    result["score"] = new_score
-    result["direction"] = direction
-    result["honest_assessment"] = assessment
-    result["suggested_position_size_pct"] = assessment.get("suggested_position_size_pct")
+    # Re-compute honest assessment, direction, and trade plan
+    _recompute_assessment_and_trade_plan(result, new_score)
 
     return _recompute_confidence_and_counts(result)
 
@@ -680,6 +720,10 @@ def recommend(
                         result = _apply_concentration_filter(result, conc_check)
                     except Exception:
                         pass
+                # Pop internal helper arrays before appending to results
+                result.pop("_highs", None)
+                result.pop("_lows", None)
+                result.pop("_closes", None)
                 all_results.append(result)
 
     # Separate by direction and sort

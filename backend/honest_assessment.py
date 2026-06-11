@@ -69,7 +69,7 @@ def get_portfolio_drawdown() -> float:
             pnl = None
             if status == "active":
                 pnl = unrealized_pnl
-            elif status == "manually_closed" and r["notes"]:
+            elif status in ("manually_closed", "hit_stop") and r["notes"]:
                 match = re.search(r"P&L:\s*([\-\d\.]+)%", r["notes"])
                 if match:
                     try:
@@ -90,7 +90,7 @@ def get_portfolio_drawdown() -> float:
                 
             # Determine exit datetime
             exit_dt = None
-            if status in ("expired", "manually_closed") and r["updated_at"]:
+            if status in ("expired", "manually_closed", "hit_stop") and r["updated_at"]:
                 try:
                     exit_dt = datetime.strptime(r["updated_at"], "%Y-%m-%d %H:%M:%S")
                 except Exception:

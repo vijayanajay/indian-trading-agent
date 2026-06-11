@@ -917,7 +917,42 @@ def test_cron_cache_rebuild_deduplication():
 
 
 
+def test_portfolio_drawdown_with_hit_stop():
+    """Verify that portfolio drawdown calculation correctly includes 'hit_stop' trades with their actual stop P&L and correct exit date."""
+    from backend.honest_assessment import get_portfolio_drawdown
 
+    with get_db() as conn:
+        conn.execute("DELETE FROM paper_trades")
 
+    # WT1: hit_stop trade.
+    # Entry: 2026-06-01 10:00:00, Exit (updated_at): 2026-06-02 10:00:00.
+    # Position size: 10%.
+    # notes: "Stop-loss hit at Rs.90.0 on 2026-06-02. P&L: -10.0%"
+    # If hit_stop works:
+    # - Start equity: 100k
+    # - entry: alloc 10k. Cash = 90k.
+    # - exit at 2026-06-02: P&L is parsed as -10.0%, returned = 9k. Cash = 99k. Equity = 99k. Drawdown = 1.0%.
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_datetime, status, notes, updated_at, position_size_pct, unrealized_pnl_pct)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("ST1", 100.0, "[]", "2026-06-01 10:00:00", "hit_stop", "Stop-loss hit at Rs.90.0 on 2026-06-02. P&L: -10.0%", "2026-06-02 10:00:00", 10.0, 0.0)
+        )
 
+    dd = get_portfolio_drawdown()
+    assert abs(dd - 1.0) < 0.01
 
+    # WT2: Next day trade.
+    # Entry: 2026-06-03 10:00:00, Exit: 2026-06-04 10:00:00.
+    # Returns -50.0%, position_size_pct = 10.0%.
+    # If ST1's exit was parsed correctly on 2026-06-02, the cash is 99k, so ST2 alloc = 9.9k.
+    # ST2 returns 4.95k. Final equity = 94.05k. Max drawdown = 5.95%.
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_datetime, status, pnl_5d_pct, updated_at, position_size_pct, unrealized_pnl_pct)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("ST2", 100.0, "[]", "2026-06-03 10:00:00", "expired", -50.0, "2026-06-04 10:00:00", 10.0, 0.0)
+        )
+
+    dd2 = get_portfolio_drawdown()
+    assert abs(dd2 - 5.95) < 0.01

@@ -361,3 +361,55 @@ def test_recompute_confidence_and_counts_in_filters():
     assert out_direct["bullish_signal_count"] == 4
     assert out_direct["confidence"] == "HIGH"
 
+
+def test_filter_updates_trade_plan():
+    import numpy as np
+    # Test that filter adjustments update stop loss, target price, and R:R ratio
+    res = {
+        "score": 3.0,
+        "price": 100.0,
+        "direction": "BUY",
+        "signals": [],
+        "filter_adjustments": [],
+        "_highs": np.array([105.0] * 60),
+        "_lows": np.array([95.0] * 60),
+        "_closes": np.array([100.0] * 60),
+        "suggested_stop_loss": 98.0,
+        "target_price": 104.0,
+        "risk_reward_ratio": 2.0,
+    }
+
+    # Case 1: Apply a large bearish bias that downgrades BUY -> NEUTRAL.
+    # The trade plan levels should be cleared (None).
+    bias = {"bias": "BEARISH", "score_adjustment": -4.0, "reasoning": "FII selling"}
+    with patch("backend.honest_assessment.get_honest_assessment") as mock_honest:
+        # Return probability resulting in NEUTRAL direction (e.g. 50%)
+        mock_honest.return_value = {"probability": 50.0}
+        out = _apply_market_bias(res.copy(), bias)
+        assert out["direction"] == "NEUTRAL"
+        assert out["suggested_stop_loss"] is None
+        assert out["target_price"] is None
+        assert out["risk_reward_ratio"] is None
+
+    # Case 2: Apply a bearish bias that flips BUY -> SELL (SHORT trade).
+    # Since we don't have support/resistance mocks, it should run the short levels calculations.
+    # We patch _find_support_resistance to return mock support/resistance
+    with patch("backend.honest_assessment.get_honest_assessment") as mock_honest, \
+         patch("backend.routers.strategies._find_support_resistance") as mock_sr:
+        
+        mock_honest.return_value = {"probability": 30.0}  # Will map to SELL (SHORT)
+        mock_sr.return_value = {"supports": [{"level": 90.0}], "resistances": [{"level": 102.0}]}
+        
+        out = _apply_market_bias(res.copy(), bias)
+        assert out["direction"] == "STRONG SELL"
+        # For a short trade:
+        # resistance is 102.0, fallback_dist is min(0.02 * 100, 2 * atr)
+        # atr for all flat elements is 0. fallback_dist is 0.02 * 100 = 2.0
+        # Since 102.0 - 100.0 = 2.0 <= 2.0, suggested_stop_loss is nearest resistance = 102.0.
+        # target_price is nearest support = 90.0.
+        # risk = 102 - 100 = 2.0. reward = 100 - 90 = 10.0. R:R = 10.0 / 2.0 = 5.0.
+        assert out["suggested_stop_loss"] == 102.0
+        assert out["target_price"] == 90.0
+        assert out["risk_reward_ratio"] == 5.0
+
+
