@@ -211,7 +211,7 @@ def get_portfolio_drawdown(max_age_minutes: int = 15) -> float:
         return 0.0
 
 
-def get_honest_assessment(signals: list[dict], score: float, regime: str | None, risk_reward_ratio: float | None = None) -> dict:
+def get_honest_assessment(signals: list[dict], score: float, regime: str | None, risk_reward_ratio: float | None = None, performance_cache: dict | None = None) -> dict:
     """Assess a recommendation based on historical trade counts of its signal fingerprint.
 
     Args:
@@ -219,6 +219,7 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None,
         score: The recommendation score.
         regime: Current market regime (BULL/BEAR/SIDEWAYS/HIGH_VOL).
         risk_reward_ratio: Optional actual risk reward ratio from the trade plan.
+        performance_cache: Optional pre-fetched map of fingerprint to cache record dict.
 
     Returns:
         A dictionary containing honest assessment metrics.
@@ -236,21 +237,8 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None,
 
     # 1. Attempt O(1) Cache Lookup
     try:
-        with get_db() as conn:
-            # Prime cache on request if empty
-            cache_count = conn.execute("SELECT COUNT(*) as cnt FROM signal_performance_cache").fetchone()
-            if cache_count and cache_count["cnt"] == 0:
-                try:
-                    from backend.cron import recompute_fingerprints_and_features_for_last_180_days
-                    recompute_fingerprints_and_features_for_last_180_days()
-                except Exception:
-                    pass
-
-            row = conn.execute(
-                """SELECT n_trades, wins, win_rate, wilson_lower, wilson_upper, avg_pnl 
-                   FROM signal_performance_cache WHERE fingerprint = ?""",
-                (fingerprint,),
-            ).fetchone()
+        if performance_cache is not None:
+            row = performance_cache.get(fingerprint)
             if row:
                 n_trades = row["n_trades"]
                 wins = row["wins"]
@@ -259,6 +247,30 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None,
                 wilson_upper = row["wilson_upper"]
                 avg_pnl = row["avg_pnl"]
                 cached = True
+        else:
+            with get_db() as conn:
+                # Prime cache on request if empty
+                cache_count = conn.execute("SELECT COUNT(*) as cnt FROM signal_performance_cache").fetchone()
+                if cache_count and cache_count["cnt"] == 0:
+                    try:
+                        from backend.cron import recompute_fingerprints_and_features_for_last_180_days
+                        recompute_fingerprints_and_features_for_last_180_days()
+                    except Exception:
+                        pass
+
+                row = conn.execute(
+                    """SELECT n_trades, wins, win_rate, wilson_lower, wilson_upper, avg_pnl 
+                       FROM signal_performance_cache WHERE fingerprint = ?""",
+                    (fingerprint,),
+                ).fetchone()
+                if row:
+                    n_trades = row["n_trades"]
+                    wins = row["wins"]
+                    win_rate = row["win_rate"]
+                    wilson_lower = row["wilson_lower"]
+                    wilson_upper = row["wilson_upper"]
+                    avg_pnl = row["avg_pnl"]
+                    cached = True
     except Exception:
         pass
 

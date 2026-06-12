@@ -199,26 +199,67 @@ def list_shadow_trades(window_days: int = 90, only_ripe: bool = False) -> list[d
                 WHERE signal_date >= date('now', '-{int(window_days)} days')
                 ORDER BY signal_date DESC, ticker ASC"""
         ).fetchall()
-    out = []
-    for r in rows:
-        d = dict(r)
-        if only_ripe and d.get("pnl_5d_pct") is None:
-            continue
-        if d.get("triggered_signals"):
-            try:
-                d["triggered_signals"] = json.loads(d["triggered_signals"])
-            except Exception:
-                pass
         
-        # Dynamically append honest_assessment
-        from backend.honest_assessment import get_honest_assessment
-        signals = d.get("triggered_signals") or []
-        score = d.get("score") or 0.0
-        regime = d.get("regime_at_entry")
-        d["honest_assessment"] = get_honest_assessment(signals, score, regime)
+        # 1. Parse and extract unique fingerprints for batch pre-fetching
+        from backend.honest_assessment import compute_fingerprint, get_honest_assessment
         
-        out.append(d)
-    return out
+        parsed_rows = []
+        fingerprints = set()
+        for r in rows:
+            d = dict(r)
+            if only_ripe and d.get("pnl_5d_pct") is None:
+                continue
+            
+            raw_signals = d.get("triggered_signals")
+            signals = []
+            if raw_signals:
+                try:
+                    signals = json.loads(raw_signals)
+                    d["triggered_signals"] = signals
+                except Exception:
+                    pass
+            
+            # Compute fingerprint
+            regime = d.get("regime_at_entry")
+            signal_types = [s.get("type") for s in signals if isinstance(s, dict) and s.get("type")]
+            fp = compute_fingerprint(signal_types, regime)
+            d["_fingerprint"] = fp
+            fingerprints.add(fp)
+            parsed_rows.append(d)
+            
+        # Fetch matching records from cache
+        performance_cache = {}
+        if fingerprints:
+            placeholders = ",".join("?" for _ in fingerprints)
+            cache_rows = conn.execute(
+                f"""SELECT fingerprint, n_trades, wins, win_rate, wilson_lower, wilson_upper, avg_pnl 
+                   FROM signal_performance_cache 
+                   WHERE fingerprint IN ({placeholders})""",
+                tuple(fingerprints)
+            ).fetchall()
+            for cr in cache_rows:
+                performance_cache[cr["fingerprint"]] = dict(cr)
+                
+        # 2. Call get_honest_assessment with pre-fetched performance_cache and in-memory deduplication
+        out = []
+        assessment_cache = {}
+        for d in parsed_rows:
+            fp = d.pop("_fingerprint")
+            signals = d.get("triggered_signals") or []
+            score = d.get("score") or 0.0
+            regime = d.get("regime_at_entry")
+            
+            cache_key = (fp, score, regime)
+            if cache_key in assessment_cache:
+                d["honest_assessment"] = assessment_cache[cache_key]
+            else:
+                assessment = get_honest_assessment(
+                    signals, score, regime, performance_cache=performance_cache
+                )
+                assessment_cache[cache_key] = assessment
+                d["honest_assessment"] = assessment
+            out.append(d)
+        return out
 
 
 def shadow_vs_user_comparison(window_days: int = 90) -> dict:

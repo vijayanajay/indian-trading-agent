@@ -1071,3 +1071,114 @@ def test_honest_assessment_perfect_track_record():
     assert assessment2["kelly_pct"] == 15.0
 
 
+def test_list_trades_n_plus_1_optimization():
+    """Verify that list_paper_trades and list_shadow_trades optimize cache lookups by avoiding N+1 database queries."""
+    from backend.db import list_paper_trades, get_db
+    from backend.shadow_trades import list_shadow_trades
+    from backend.honest_assessment import compute_fingerprint
+    from unittest.mock import patch
+    import json
+    import contextlib
+
+    with get_db() as conn:
+        conn.execute("DELETE FROM paper_trades")
+        conn.execute("DELETE FROM shadow_trades")
+        conn.execute("DELETE FROM signal_performance_cache")
+        
+        # Insert 3 paper trades with different signals (different fingerprints)
+        conn.execute(
+            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_datetime, status, score, regime_at_entry)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            ("T1", 100.0, json.dumps([{"type": "S1"}]), "2026-06-01 10:00:00", "active", 3.0, "BULL")
+        )
+        conn.execute(
+            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_datetime, status, score, regime_at_entry)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            ("T2", 100.0, json.dumps([{"type": "S2"}]), "2026-06-02 10:00:00", "active", 3.0, "BULL")
+        )
+        conn.execute(
+            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_datetime, status, score, regime_at_entry)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            ("T3", 100.0, json.dumps([{"type": "S3"}]), "2026-06-03 10:00:00", "active", 3.0, "BULL")
+        )
+
+        # Insert 3 shadow trades similarly
+        conn.execute(
+            """INSERT INTO shadow_trades (ticker, entry_price, triggered_signals, signal_date, score, regime_at_entry)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            ("T1", 100.0, json.dumps([{"type": "S1"}]), "2026-06-01", 3.0, "BULL")
+        )
+        conn.execute(
+            """INSERT INTO shadow_trades (ticker, entry_price, triggered_signals, signal_date, score, regime_at_entry)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            ("T2", 100.0, json.dumps([{"type": "S2"}]), "2026-06-02", 3.0, "BULL")
+        )
+        conn.execute(
+            """INSERT INTO shadow_trades (ticker, entry_price, triggered_signals, signal_date, score, regime_at_entry)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            ("T3", 100.0, json.dumps([{"type": "S3"}]), "2026-06-03", 3.0, "BULL")
+        )
+
+    # Let's count how many queries are executed inside get_db transactions.
+    # We patch get_db to monitor execute calls.
+    import backend.db as db_mod
+    original_get_db = db_mod.get_db
+    
+    query_count = 0
+    executed_queries = []
+
+    class QueryCounterConn:
+        def __init__(self, conn):
+            self.conn = conn
+        def execute(self, sql, *args):
+            nonlocal query_count
+            query_count += 1
+            executed_queries.append((sql, args))
+            return self.conn.execute(sql, *args)
+        def fetchall(self):
+            return self.conn.fetchall()
+        def fetchone(self):
+            return self.conn.fetchone()
+        def __enter__(self):
+            self.conn.__enter__()
+            return self
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            self.conn.__exit__(exc_type, exc_val, exc_tb)
+
+    @contextlib.contextmanager
+    def mock_get_db():
+        with original_get_db() as real_conn:
+            yield QueryCounterConn(real_conn)
+
+    # Patch get_db in all modules where it is called
+    with patch("backend.db.get_db", side_effect=mock_get_db), \
+         patch("backend.shadow_trades.get_db", side_effect=mock_get_db), \
+         patch("backend.honest_assessment.get_db", side_effect=mock_get_db):
+         
+        # Run list_paper_trades
+        query_count = 0
+        executed_queries.clear()
+        trades = list_paper_trades()
+        assert len(trades) == 3
+        
+        # Verify that there was a single batch SELECT on signal_performance_cache using IN operator
+        batch_queries = [q for q, a in executed_queries if "signal_performance_cache" in q and "IN" in q]
+        assert len(batch_queries) == 1
+        
+        # Total queries should not include any single lookup queries
+        single_lookup_queries = [q for q, a in executed_queries if "signal_performance_cache" in q and "WHERE fingerprint = ?" in q]
+        assert len(single_lookup_queries) == 0
+
+        # Now test list_shadow_trades
+        query_count = 0
+        executed_queries.clear()
+        s_trades = list_shadow_trades()
+        assert len(s_trades) == 3
+        
+        batch_queries_s = [q for q, a in executed_queries if "signal_performance_cache" in q and "IN" in q]
+        assert len(batch_queries_s) == 1
+        single_lookup_queries_s = [q for q, a in executed_queries if "signal_performance_cache" in q and "WHERE fingerprint = ?" in q]
+        assert len(single_lookup_queries_s) == 0
+
+
+

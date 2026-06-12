@@ -615,21 +615,63 @@ def list_paper_trades(status: str | None = None) -> list[dict]:
             rows = conn.execute(
                 "SELECT * FROM paper_trades ORDER BY entry_datetime DESC"
             ).fetchall()
-        result = []
+        
+        # 1. Pre-fetch the signal performance cache for all unique fingerprints in the paper trades list
+        from backend.honest_assessment import compute_fingerprint, get_honest_assessment
+        
+        parsed_rows = []
+        fingerprints = set()
         for r in rows:
             d = dict(r)
-            if d.get("triggered_signals"):
+            raw_signals = d.get("triggered_signals")
+            signals = []
+            if raw_signals:
                 try:
-                    d["triggered_signals"] = json.loads(d["triggered_signals"])
+                    signals = json.loads(raw_signals)
+                    d["triggered_signals"] = signals
                 except Exception:
                     pass
             
-            # Dynamically append honest_assessment
-            from backend.honest_assessment import get_honest_assessment
+            # Compute fingerprint
+            regime = d.get("regime_at_entry")
+            signal_types = [s.get("type") for s in signals if isinstance(s, dict) and s.get("type")]
+            fp = compute_fingerprint(signal_types, regime)
+            d["_fingerprint"] = fp  # Store temporarily to avoid recomputing
+            fingerprints.add(fp)
+            parsed_rows.append(d)
+        
+        # Now query all matching fingerprints from signal_performance_cache in a single query
+        performance_cache = {}
+        if fingerprints:
+            placeholders = ",".join("?" for _ in fingerprints)
+            cache_rows = conn.execute(
+                f"""SELECT fingerprint, n_trades, wins, win_rate, wilson_lower, wilson_upper, avg_pnl 
+                   FROM signal_performance_cache 
+                   WHERE fingerprint IN ({placeholders})""",
+                tuple(fingerprints)
+            ).fetchall()
+            for cr in cache_rows:
+                performance_cache[cr["fingerprint"]] = dict(cr)
+        
+        # 2. Call get_honest_assessment with the pre-fetched cache and in-memory cache map
+        result = []
+        assessment_cache = {}  # In-memory deduplication cache for (fp, score, regime)
+        
+        for d in parsed_rows:
+            fp = d.pop("_fingerprint")
             signals = d.get("triggered_signals") or []
             score = d.get("score") or 0.0
             regime = d.get("regime_at_entry")
-            d["honest_assessment"] = get_honest_assessment(signals, score, regime)
+            
+            cache_key = (fp, score, regime)
+            if cache_key in assessment_cache:
+                d["honest_assessment"] = assessment_cache[cache_key]
+            else:
+                assessment = get_honest_assessment(
+                    signals, score, regime, performance_cache=performance_cache
+                )
+                assessment_cache[cache_key] = assessment
+                d["honest_assessment"] = assessment
             
             result.append(d)
         return result
