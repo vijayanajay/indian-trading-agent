@@ -61,6 +61,7 @@ def test_recommend_base(mock_shadow, mock_executor, mock_refresh, mock_universes
     mock_future2.result.return_value = {"ticker": "MSFT", "score": -5.0, "direction": "STRONG SELL", "bullish_signal_count": 0, "bearish_signal_count": 3}
 
     mock_executor_instance = MagicMock()
+    mock_executor_instance.submit.side_effect = [mock_future1, mock_future2]
     # patch as_completed to yield our futures
     with patch("backend.recommender.as_completed", return_value=[mock_future1, mock_future2]):
         mock_executor.return_value.__enter__.return_value = mock_executor_instance
@@ -213,6 +214,7 @@ def test_filter_adjustments_merged_and_hashed():
         }
         
         mock_executor_instance = MagicMock()
+        mock_executor_instance.submit.return_value = mock_future
         with patch("backend.recommender.as_completed", return_value=[mock_future]):
             mock_executor.return_value.__enter__.return_value = mock_executor_instance
             
@@ -411,5 +413,40 @@ def test_filter_updates_trade_plan():
         assert out["suggested_stop_loss"] == 102.0
         assert out["target_price"] == 90.0
         assert out["risk_reward_ratio"] == 5.0
+
+
+@patch("backend.recommender.UNIVERSES")
+@patch("backend.recommender._refresh_active_weights")
+@patch("backend.recommender.ThreadPoolExecutor")
+@patch("backend.shadow_trades.record_shadow_trades_from_recommendations")
+def test_recommend_failed_tickers(mock_shadow, mock_executor, mock_refresh, mock_universes):
+    mock_universes.get.return_value = ["AAPL", "MSFT", "GOOGL"]
+
+    # AAPL succeeds
+    mock_future1 = MagicMock()
+    mock_future1.result.return_value = {"ticker": "AAPL", "score": 5.0, "direction": "STRONG BUY", "bullish_signal_count": 3, "bearish_signal_count": 0}
+
+    # MSFT fails (returns None)
+    mock_future2 = MagicMock()
+    mock_future2.result.return_value = None
+
+    # GOOGL raises exception
+    mock_future3 = MagicMock()
+    mock_future3.result.side_effect = Exception("yfinance error")
+
+    mock_executor_instance = MagicMock()
+    mock_executor_instance.submit.side_effect = [mock_future1, mock_future2, mock_future3]
+    with patch("backend.recommender.as_completed", return_value=[mock_future1, mock_future2, mock_future3]):
+        mock_executor.return_value.__enter__.return_value = mock_executor_instance
+
+        res = recommend(universe="test", apply_market_bias=False, apply_event_filter=False, apply_concentration_check=False)
+
+        assert len(res["strong_buys"]) == 1
+        assert res["strong_buys"][0]["ticker"] == "AAPL"
+        # Both MSFT and GOOGL should be in failed_tickers
+        assert "MSFT" in res["failed_tickers"]
+        assert "GOOGL" in res["failed_tickers"]
+        assert len(res["failed_tickers"]) == 2
+
 
 

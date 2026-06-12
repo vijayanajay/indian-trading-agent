@@ -9,9 +9,12 @@ For each stock in the universe:
 
 import yfinance as yf
 import numpy as np
+import logging
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from backend.scanner import NIFTY_50, NIFTY_100, BSE_250, UNIVERSES
+
+logger = logging.getLogger("recommender")
 
 
 # Historical win rates (baseline — will be overridden by live performance data if available)
@@ -524,6 +527,7 @@ def _analyze_stock(ticker: str, allowed_strategies: dict = None) -> dict | None:
         })
         return result
     except Exception as e:
+        logger.warning(f"Analysis failed for {ticker}: {type(e).__name__}: {e}", exc_info=True)
         return None
 
 
@@ -691,11 +695,20 @@ def recommend(
         except Exception as e:
             print(f"[Recommender] Concentration check failed: {e}", flush=True)
 
+    failed_tickers = []
     with ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(_analyze_stock, ticker, allowed_strategies): ticker for ticker in stocks}
         for f in as_completed(futures):
-            result = f.result()
-            if result and (result["bullish_signal_count"] >= min_signals or result["bearish_signal_count"] >= min_signals):
+            ticker = futures[f]
+            try:
+                result = f.result()
+            except Exception as e:
+                logger.warning(f"Error retrieving result for {ticker}: {e}", exc_info=True)
+                result = None
+
+            if result is None:
+                failed_tickers.append(ticker)
+            elif result["bullish_signal_count"] >= min_signals or result["bearish_signal_count"] >= min_signals:
                 # Apply market bias
                 if market_bias:
                     result = _apply_market_bias(result, market_bias)
@@ -746,6 +759,7 @@ def recommend(
         "universe": universe,
         "total_analyzed": len(stocks),
         "total_with_signals": len(all_results),
+        "failed_tickers": sorted(failed_tickers),
         "market_bias": market_bias,
         "today_market_events": today_market_events,
         "concentration_summary": concentration_summary,

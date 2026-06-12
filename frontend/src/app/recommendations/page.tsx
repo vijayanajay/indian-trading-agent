@@ -313,6 +313,25 @@ export default function RecommendationsPage() {
         </Card>
       )}
 
+      {/* Failed Tickers Warning Banner */}
+      {data && data.failed_tickers && data.failed_tickers.length > 0 && (
+        <Card className="border-amber-200 bg-amber-50/50">
+          <CardContent className="p-4 flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="font-semibold text-amber-800 text-sm">Warning: Some Stocks Could Not Be Analyzed</p>
+              <p className="text-xs text-amber-700 mt-0.5">
+                The following {data.failed_tickers.length} stocks encountered errors or lacked sufficient data during analysis:{" "}
+                <span className="font-mono font-semibold">
+                  {data.failed_tickers.join(", ")}
+                </span>
+                . Check system logs for details.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Summary */}
       {data && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
