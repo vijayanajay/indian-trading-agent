@@ -116,6 +116,7 @@
 - Fixed the portfolio drawdown calculation in `backend/honest_assessment.py::get_portfolio_drawdown()` to fetch live prices for active positions from `yfinance` if the database-cached `unrealized_pnl_pct` is older than `max_age_minutes` (default 15). This prevents the drawdown calculation from using stale/yesterday's data during intraday trading, which could otherwise cause the >10% drawdown Kelly sizing safety cap to fail to trigger.
 - Fixed a bug where `update_paper_trade_prices` in `backend/db.py` did not persist the calculated `unrealized_pnl_pct` back to the database, ensuring price refresh runs correctly update cached values.
 - Added a unit test `test_portfolio_drawdown_stale_active_position` in `tests/backend/test_honest_assessment.py` to verify the live fetching behavior, database persistence, and cached fallback logic.
+- Fixed Kelly Criterion position sizing in `backend/honest_assessment.py::get_honest_assessment()` to support signals with perfect track records (no historical losses) by checking for `has_wins` (instead of requiring `avg_loss < 0.0` for confidence verification), and resolved potential `ZeroDivisionError` crashes when calculating payoff ratio `b` for strategies without losses by fallback sizing (defaults to `1.0` or caller-provided `risk_reward_ratio`). Added unit test coverage in `tests/backend/test_honest_assessment.py`.
 
 
 ## Rejected Changes

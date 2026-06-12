@@ -1012,3 +1012,62 @@ def test_portfolio_drawdown_stale_active_position():
         mock_yf_second.assert_not_called()
         assert abs(dd2 - 1.0) < 0.01
 
+
+def test_honest_assessment_perfect_track_record():
+    """Verify that get_honest_assessment does not reject perfect track records (no losses)
+    and handles division by zero safely during Kelly sizing.
+    """
+    signals = [{"type": "Breakout (Volume Confirmed)"}]
+    regime = "BULL"
+    fp = compute_fingerprint([s["type"] for s in signals], regime)
+    
+    # 1. Setup a valid calibrated model in model_coefficients table
+    with get_db() as conn:
+        conn.execute("INSERT OR REPLACE INTO model_coefficients (feature, coefficient, auc, brier, last_trained_date) VALUES ('intercept', -1.5, 0.60, 0.15, '2026-06-07')")
+        conn.execute("INSERT OR REPLACE INTO model_coefficients (feature, coefficient, auc, brier, last_trained_date) VALUES ('sig_breakout_vol_confirmed', 2.0, 0.60, 0.15, '2026-06-07')")
+        conn.execute("INSERT OR REPLACE INTO model_coefficients (feature, coefficient, auc, brier, last_trained_date) VALUES ('regime_BULL', 0.5, 0.60, 0.15, '2026-06-07')")
+        import backend.signal_model
+        backend.signal_model._MODEL_CACHE = None
+    
+    # Update cache to indicate CALIBRATED tier (n >= 100)
+    with get_db() as conn:
+        conn.execute(
+            """INSERT OR REPLACE INTO signal_performance_cache (fingerprint, n_trades, wins, win_rate, wilson_lower, wilson_upper, avg_pnl)
+               VALUES (?, 120, 120, 1.0, 0.95, 1.0, 3.5)""",
+            (fp,),
+        )
+        
+    # Clear paper_trades and shadow_trades first
+    with get_db() as conn:
+        conn.execute("DELETE FROM paper_trades")
+        conn.execute("DELETE FROM shadow_trades")
+        
+        # Insert 150 wins, 0 losses
+        for i in range(150):
+            conn.execute(
+                """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, regime_at_entry, pnl_5d_pct, signal_fingerprint)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (f"P_WIN_{i}", 100.0, "[]", "BULL", 3.5, fp)
+            )
+            
+    # Test case 1: No risk_reward_ratio provided.
+    # It should fall back to avg_loss = 0.0 handling (setting b = 1.0), and low_confidence = False.
+    # Logit = -1.5 + 2.0 + 0.5 = 1.0 => p = 1 / (1 + e^-1.0) = 0.731 => q = 0.269
+    # b = 1.0 (fallback when avg_loss is 0.0 and no risk_reward_ratio is provided)
+    # k_frac = (p*b - q)/b = (0.731*1.0 - 0.269)/1.0 = 0.462 => 46.2% capped at 15.0%
+    assessment = get_honest_assessment(signals, 4.5, regime)
+    assert assessment["tier"] == "CALIBRATED"
+    assert assessment["low_confidence"] is False
+    assert assessment["kelly_pct"] == 15.0
+    assert assessment["suggested_position_size_pct"] == 15.0
+    assert "Model:" in assessment["display_message"]
+
+    # Test case 2: risk_reward_ratio provided as 3.0.
+    # Logit = 1.0 => p = 0.731 => q = 0.269
+    # b = 3.0
+    # k_frac = (0.731*3.0 - 0.269)/3.0 = (2.193 - 0.269)/3.0 = 0.641 => 64.1% capped at 15.0%
+    assessment2 = get_honest_assessment(signals, 4.5, regime, risk_reward_ratio=3.0)
+    assert assessment2["low_confidence"] is False
+    assert assessment2["kelly_pct"] == 15.0
+
+

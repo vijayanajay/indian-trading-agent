@@ -424,7 +424,9 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None,
                             
                             avg_win = sum(wins_list) / len(wins_list) if wins_list else 0.0
                             avg_loss = sum(losses_list) / len(losses_list) if losses_list else 0.0
-                            if avg_win > 0.0 and avg_loss < 0.0:
+                            has_wins = len(wins_list) > 0
+                            has_losses = len(losses_list) > 0
+                            if has_wins and (has_losses or avg_win > 0.0):
                                 low_confidence = False
                     except Exception:
                         pass
@@ -435,7 +437,10 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None,
                             suggested_size = 0.0
                             message = "DO NOT TRADE (insufficient win/loss data for Kelly sizing)"
                         else:
-                            b = risk_reward_ratio if (risk_reward_ratio is not None and risk_reward_ratio > 0) else (avg_win / abs(avg_loss))
+                            if avg_loss == 0.0:
+                                b = risk_reward_ratio if (risk_reward_ratio is not None and risk_reward_ratio > 0) else 1.0
+                            else:
+                                b = risk_reward_ratio if (risk_reward_ratio is not None and risk_reward_ratio > 0) else (avg_win / abs(avg_loss))
                             
                             # Full Kelly formula
                             q = 1.0 - p
