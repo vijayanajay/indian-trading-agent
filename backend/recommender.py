@@ -212,11 +212,12 @@ def _recompute_assessment_and_trade_plan(result: dict, new_score: float) -> None
     based on a new score.
     """
     result["score"] = new_score
+    combined_signals = result.get("signals", []) + result.get("filter_adjustments", [])
 
     # 1. First-pass honest assessment using current risk_reward_ratio
     from backend.honest_assessment import get_honest_assessment
     assessment_temp = get_honest_assessment(
-        result.get("signals", []),
+        combined_signals,
         new_score,
         _ACTIVE_REGIME,
         risk_reward_ratio=result.get("risk_reward_ratio")
@@ -255,7 +256,7 @@ def _recompute_assessment_and_trade_plan(result: dict, new_score: float) -> None
 
     # 4. Second-pass honest assessment using the newly calculated risk_reward_ratio
     assessment = get_honest_assessment(
-        result.get("signals", []),
+        combined_signals,
         new_score,
         _ACTIVE_REGIME,
         risk_reward_ratio=result.get("risk_reward_ratio")

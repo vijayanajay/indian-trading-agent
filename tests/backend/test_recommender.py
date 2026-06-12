@@ -230,10 +230,10 @@ def test_filter_adjustments_merged_and_hashed():
             assert len(pick["filter_adjustments"]) == 1
             assert "FII/DII Flow" in pick["filter_adjustments"][0]["type"]
             
-            # The honest assessment fingerprint should ONLY contain the base signals (not the filters)
+            # The honest assessment fingerprint should contain both the base signals and the filter adjustments
             fp = pick["honest_assessment"]["fingerprint"]
             from backend.honest_assessment import compute_fingerprint
-            expected_fp = compute_fingerprint(["Strong Uptrend"], "UNKNOWN")
+            expected_fp = compute_fingerprint(["Strong Uptrend", "FII/DII Flow (BULLISH)"], "UNKNOWN")
             assert fp == expected_fp
 
 
