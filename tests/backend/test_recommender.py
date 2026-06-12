@@ -325,32 +325,32 @@ def test_recompute_confidence_and_counts_in_filters():
             "filter_adjustments": []
         }
 
-    # 1. Apply a bullish market bias flow (should not inflate aligned count, remains 3 -> MEDIUM confidence)
+    # 1. Apply a bullish market bias flow (should inflate aligned count to 4 -> HIGH confidence)
     bias = {"bias": "BULLISH", "score_adjustment": 1.0, "reasoning": "FII buying"}
     out = _apply_market_bias(get_base_res(), bias)
-    assert out["bullish_signal_count"] == 3
+    assert out["bullish_signal_count"] == 4
     assert out["bearish_signal_count"] == 0
-    assert out["confidence"] == "MEDIUM"
+    assert out["confidence"] == "HIGH"
 
-    # 2. Apply a bearish market bias flow instead (aligned count remains 3 -> MEDIUM confidence)
+    # 2. Apply a bearish market bias flow instead (aligned count remains 3 -> MEDIUM confidence, bearish count becomes 1)
     bias_bear = {"bias": "BEARISH", "score_adjustment": -1.0, "reasoning": "FII selling"}
     out_bear = _apply_market_bias(get_base_res(), bias_bear)
     assert out_bear["bullish_signal_count"] == 3
-    assert out_bear["bearish_signal_count"] == 0
+    assert out_bear["bearish_signal_count"] == 1
     assert out_bear["confidence"] == "MEDIUM"
 
-    # 3. Apply a concentration filter (should not add BEARISH count)
+    # 3. Apply a concentration filter (should add BEARISH count)
     conc = {"sector": "IT", "score_adjustment": -2.0, "warnings": ["High risk"]}
     out_conc = _apply_concentration_filter(get_base_res(), conc)
     assert out_conc["bullish_signal_count"] == 3
-    assert out_conc["bearish_signal_count"] == 0
+    assert out_conc["bearish_signal_count"] == 1
     assert out_conc["confidence"] == "MEDIUM"
 
-    # 4. Apply an event filter (should not add BEARISH count)
+    # 4. Apply an event filter (should add BEARISH count)
     event = {"has_event": True, "score_adjustment": -2.0, "warning": "RBI Policy"}
     out_event = _apply_event_filter(get_base_res(), event)
     assert out_event["bullish_signal_count"] == 3
-    assert out_event["bearish_signal_count"] == 0
+    assert out_event["bearish_signal_count"] == 1
     assert out_event["confidence"] == "MEDIUM"
 
     # 5. Verify direct calling of _recompute_confidence_and_counts with include_filters=True

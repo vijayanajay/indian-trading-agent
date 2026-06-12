@@ -566,7 +566,7 @@ def _apply_market_bias(result: dict, bias: dict) -> dict:
     result["market_bias_applied"] = bias["bias"]
     result["market_bias_score_adj"] = adj
 
-    return _recompute_confidence_and_counts(result)
+    return _recompute_confidence_and_counts(result, include_filters=True)
 
 
 def _apply_concentration_filter(result: dict, concentration_check: dict) -> dict:
@@ -597,7 +597,7 @@ def _apply_concentration_filter(result: dict, concentration_check: dict) -> dict
     # Re-compute honest assessment, direction, and trade plan
     _recompute_assessment_and_trade_plan(result, new_score)
 
-    return _recompute_confidence_and_counts(result)
+    return _recompute_confidence_and_counts(result, include_filters=True)
 
 
 def _apply_event_filter(result: dict, event_filter: dict) -> dict:
@@ -626,7 +626,7 @@ def _apply_event_filter(result: dict, event_filter: dict) -> dict:
     # Re-compute honest assessment, direction, and trade plan
     _recompute_assessment_and_trade_plan(result, new_score)
 
-    return _recompute_confidence_and_counts(result)
+    return _recompute_confidence_and_counts(result, include_filters=True)
 
 
 def recommend(
