@@ -661,6 +661,7 @@ def update_paper_trade_prices(trade_id: int, prices: dict):
                 pnl_3d_pct = COALESCE(?, pnl_3d_pct),
                 pnl_5d_pct = COALESCE(?, pnl_5d_pct),
                 pnl_10d_pct = COALESCE(?, pnl_10d_pct),
+                unrealized_pnl_pct = COALESCE(?, unrealized_pnl_pct),
                 updated_at = datetime('now')
                WHERE id = ?""",
             (
@@ -672,6 +673,7 @@ def update_paper_trade_prices(trade_id: int, prices: dict):
                 calc_pnl(prices.get("price_3d")),
                 calc_pnl(prices.get("price_5d")),
                 calc_pnl(prices.get("price_10d")),
+                prices.get("unrealized_pnl_pct"),
                 trade_id,
             ),
         )

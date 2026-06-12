@@ -956,3 +956,59 @@ def test_portfolio_drawdown_with_hit_stop():
 
     dd2 = get_portfolio_drawdown()
     assert abs(dd2 - 5.95) < 0.01
+
+
+def test_portfolio_drawdown_stale_active_position():
+    """Verify that get_portfolio_drawdown fetches live prices for stale active positions from yfinance."""
+    from datetime import datetime, timedelta
+    from backend.honest_assessment import get_portfolio_drawdown
+    from unittest.mock import patch, MagicMock
+
+    with get_db() as conn:
+        conn.execute("DELETE FROM paper_trades")
+        
+    one_hour_ago_str = (datetime.utcnow() - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+
+    # Insert stale active trade
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO paper_trades (ticker, entry_price, triggered_signals, entry_datetime, status, updated_at, position_size_pct, unrealized_pnl_pct, direction)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("STALE_TICKER", 100.0, "[]", "2026-06-01 10:00:00", "active", one_hour_ago_str, 10.0, 0.0, "LONG")
+        )
+
+    # Mock yfinance to return a live price of 90.0 (which is a -10% loss)
+    mock_ticker = MagicMock()
+    mock_history = MagicMock()
+    mock_history.empty = False
+    mock_history.iloc = [{"Close": 90.0}]
+    mock_ticker.history.return_value = mock_history
+
+    with patch("yfinance.Ticker", return_value=mock_ticker) as mock_yf:
+        # Drawdown calculation should fetch live price and get drawdown based on the -10% unrealized P&L
+        dd = get_portfolio_drawdown(max_age_minutes=15)
+        
+        # Verify yfinance was called
+        mock_yf.assert_called_once()
+        
+        # Start equity: 100k
+        # STALE_TICKER entry alloc: 10k
+        # Cash remaining: 90k
+        # Live marked-to-market value: 9k (10k * 0.9)
+        # Total equity: 99k. Drawdown from peak (100k) should be 1.0%
+        assert abs(dd - 1.0) < 0.01
+
+        # Check that the database was updated with the new unrealized_pnl_pct (-10.0)
+        with get_db() as conn:
+            row = conn.execute("SELECT unrealized_pnl_pct FROM paper_trades WHERE ticker = 'STALE_TICKER'").fetchone()
+            assert row is not None
+            assert abs(row["unrealized_pnl_pct"] + 10.0) < 0.01
+
+    # Now run it again with a fresh max_age_minutes (e.g. 15).
+    # Since the database was updated just now (timestamp is fresh), it should use the cached value without calling yfinance!
+    with patch("yfinance.Ticker") as mock_yf_second:
+        dd2 = get_portfolio_drawdown(max_age_minutes=15)
+        # Verify yfinance was NOT called this time
+        mock_yf_second.assert_not_called()
+        assert abs(dd2 - 1.0) < 0.01
+

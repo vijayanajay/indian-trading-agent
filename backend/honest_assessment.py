@@ -35,14 +35,14 @@ def wilson_confidence_interval(wins: int, n: int, z: float = 1.28) -> tuple[floa
     return max(0.0, (center - margin) / denom), min(1.0, (center + margin) / denom)
 
 
-def get_portfolio_drawdown() -> float:
+def get_portfolio_drawdown(max_age_minutes: int = 15) -> float:
     """Reconstruct the paper trading portfolio equity curve and compute current drawdown from peak."""
     try:
         with get_db() as conn:
             rows = conn.execute(
                 """SELECT id, ticker, entry_datetime, entry_date, status, notes, 
                           pnl_1d_pct, pnl_3d_pct, pnl_5d_pct, pnl_10d_pct, updated_at,
-                          position_size_pct, unrealized_pnl_pct
+                          position_size_pct, unrealized_pnl_pct, entry_price, direction
                    FROM paper_trades"""
             ).fetchall()
         if not rows:
@@ -64,6 +64,50 @@ def get_portfolio_drawdown() -> float:
             
             status = r["status"]
             unrealized_pnl = r["unrealized_pnl_pct"] if r["unrealized_pnl_pct"] is not None else 0.0
+            
+            # Fetch fresh unrealized P&L for active trades if stale
+            if status == "active":
+                is_fresh = False
+                if r["updated_at"] and r["unrealized_pnl_pct"] is not None:
+                    try:
+                        updated_dt = datetime.strptime(r["updated_at"], "%Y-%m-%d %H:%M:%S")
+                        age = min(
+                            abs((datetime.utcnow() - updated_dt).total_seconds() / 60.0),
+                            abs((datetime.now() - updated_dt).total_seconds() / 60.0)
+                        )
+                        if age <= max_age_minutes:
+                            is_fresh = True
+                    except Exception:
+                        pass
+                
+                if not is_fresh:
+                    # Fetch live price via yfinance
+                    try:
+                        import yfinance as yf
+                        from tradingagents.utils.ticker import normalize_ticker
+                        symbol = normalize_ticker(r["ticker"])
+                        t = yf.Ticker(symbol)
+                        hist = t.history(period="1d")
+                        if not hist.empty:
+                            current_price = float(hist.iloc[-1]["Close"])
+                            entry_price = r["entry_price"]
+                            if entry_price and entry_price > 0:
+                                direction = r["direction"] or "LONG"
+                                multiplier = 1 if direction == "LONG" else -1
+                                live_pnl = round(multiplier * (current_price - entry_price) / entry_price * 100, 2)
+                                unrealized_pnl = live_pnl
+                                # Write back to db to keep it fresh and avoid repeating yfinance calls
+                                try:
+                                    with get_db() as u_conn:
+                                        u_conn.execute(
+                                            "UPDATE paper_trades SET unrealized_pnl_pct = ?, updated_at = datetime('now') WHERE id = ?",
+                                            (live_pnl, r["id"])
+                                        )
+                                except Exception:
+                                    pass
+                    except Exception:
+                        # Fallback to the cached value if anything goes wrong
+                        pass
             
             # Determine P&L
             pnl = None
