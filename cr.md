@@ -117,11 +117,9 @@
 - Fixed a bug where `update_paper_trade_prices` in `backend/db.py` did not persist the calculated `unrealized_pnl_pct` back to the database, ensuring price refresh runs correctly update cached values.
 - Added a unit test `test_portfolio_drawdown_stale_active_position` in `tests/backend/test_honest_assessment.py` to verify the live fetching behavior, database persistence, and cached fallback logic.
 - Fixed Kelly Criterion position sizing in `backend/honest_assessment.py::get_honest_assessment()` to support signals with perfect track records (no historical losses) by checking for `has_wins` (instead of requiring `avg_loss < 0.0` for confidence verification), and resolved potential `ZeroDivisionError` crashes when calculating payoff ratio `b` for strategies without losses by fallback sizing (defaults to `1.0` or caller-provided `risk_reward_ratio`). Added unit test coverage in `tests/backend/test_honest_assessment.py`.
+- Fixed the date generation bug in `backend/verdict_calibration.py::_add_trading_days` by replacing the weekday-only manual logic with the `next_trading_day` calendar utility to correctly handle NSE market holidays (e.g. Diwali). Added unit test coverage in `tests/backend/test_verdict_calibration.py`.
 
 
 ## Rejected Changes
 
 - **Shadow Trade P&L Inverted for Bearish Signals**: Assumed that P&L calculation is inverted for bearish shadow trades. This was rejected because the shadow trade recorder currently only tracks `"STRONG BUY"` and `"BUY"` recommendations in the database. Consequently, no bearish shadow trades are stored in production, making the current P&L calculation correct for all recorded entries, and the proposed fix redundant under the user's long-only trading architecture.
-
-
-

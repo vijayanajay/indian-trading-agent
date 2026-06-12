@@ -24,6 +24,7 @@ from typing import Optional
 import yfinance as yf
 
 from backend.db import get_db
+from tradingagents.utils.market_calendar import next_trading_day
 
 
 NIFTY_SYMBOL = "^NSEI"
@@ -178,17 +179,10 @@ def backfill_outcomes(max_age_days: int = 30) -> dict:
 
 
 def _add_trading_days(start: date, n: int) -> date:
-    """Approximate `n` trading days forward (skips Sat/Sun, ignores holidays).
-
-    Good enough for backfill ripeness checks; the actual close lookup uses
-    yfinance which handles holidays correctly.
-    """
+    """Add `n` trading days forward using the NSE market calendar."""
     cur = start
-    added = 0
-    while added < n:
-        cur = cur + timedelta(days=1)
-        if cur.weekday() < 5:  # Mon-Fri
-            added += 1
+    for _ in range(n):
+        cur = next_trading_day(cur)
     return cur
 
 
