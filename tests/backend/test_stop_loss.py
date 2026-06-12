@@ -130,6 +130,30 @@ def test_open_paper_trade_auto_populate(mock_add_trade, mock_ticker):
         assert called_arg["stop_loss_price"] == 98.0
         assert called_arg["risk_reward_ratio"] == 2.0
 
+@patch("backend.simulation.yf.Ticker")
+@patch("backend.simulation.add_paper_trade")
+def test_open_paper_trade_no_overwrite(mock_add_trade, mock_ticker):
+    # Setup mock history for entry price
+    df = pd.DataFrame({"Close": [100.0]}, index=pd.date_range(end="2026-06-07", periods=1))
+    mock_ticker.return_value.history.return_value = df
+    
+    # We mock _analyze_stock to return suggested_stop_loss = 98.0 and risk_reward_ratio = 2.0
+    with patch("backend.recommender._analyze_stock") as mock_analyze:
+        mock_analyze.return_value = {
+            "suggested_stop_loss": 98.0,
+            "risk_reward_ratio": 2.0,
+        }
+        
+        # Scenario: stop_loss_price is provided (95.0), risk_reward_ratio is None
+        open_paper_trade("AAPL", source="recommendation", signal="BUY", stop_loss_price=95.0, risk_reward_ratio=None)
+        
+        mock_add_trade.assert_called_once()
+        called_arg = mock_add_trade.call_args[0][0]
+        # Should keep caller's stop_loss_price (95.0) and auto-populate risk_reward_ratio (2.0)
+        assert called_arg["stop_loss_price"] == 95.0
+        assert called_arg["risk_reward_ratio"] == 2.0
+
+
 @patch("backend.simulation.list_paper_trades")
 @patch("backend.simulation.get_db")
 @patch("backend.simulation.refresh_paper_trade_prices")
