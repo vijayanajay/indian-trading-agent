@@ -218,6 +218,19 @@ def ensure_db():
                 brier REAL,
                 last_trained_date TEXT NOT NULL
             );
+
+            -- Correlation cache: 90-day rolling pairwise correlations between tickers
+            -- Refreshed daily by cron. Stale entries older than 7 days are ignored.
+            CREATE TABLE IF NOT EXISTS correlation_cache (
+                ticker_a TEXT NOT NULL,
+                ticker_b TEXT NOT NULL,
+                correlation REAL NOT NULL,          -- Pearson correlation [-1, 1]
+                lookback_days INTEGER DEFAULT 90,
+                computed_at TEXT DEFAULT (datetime('now')),
+                PRIMARY KEY (ticker_a, ticker_b, lookback_days)
+            );
+            CREATE INDEX IF NOT EXISTS idx_corr_ticker_a ON correlation_cache(ticker_a);
+            CREATE INDEX IF NOT EXISTS idx_corr_computed_at ON correlation_cache(computed_at);
         """)
     _migrate_paper_trades_columns()
     _run_position_size_migration()
@@ -791,3 +804,73 @@ def list_recommender_backtest_runs() -> list[dict]:
                ORDER BY MAX(created_at) DESC"""
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+# ============================================================
+# Correlation Cache
+# ============================================================
+
+def save_correlation(ticker_a: str, ticker_b: str, correlation: float, lookback_days: int = 90):
+    """Save or update a pairwise correlation. Ensures canonical ordering (A < B)."""
+    a, b = sorted([ticker_a.upper(), ticker_b.upper()])
+    with get_db() as conn:
+        conn.execute(
+            """INSERT OR REPLACE INTO correlation_cache
+            (ticker_a, ticker_b, correlation, lookback_days, computed_at)
+            VALUES (?, ?, ?, ?, datetime('now'))""",
+            (a, b, correlation, lookback_days),
+        )
+
+
+def get_correlation(ticker_a: str, ticker_b: str, lookback_days: int = 90):
+    """Get cached correlation. Returns None if not cached or stale (>7 days)."""
+    a, b = sorted([ticker_a.upper(), ticker_b.upper()])
+    with get_db() as conn:
+        row = conn.execute(
+            """SELECT correlation, computed_at FROM correlation_cache
+            WHERE ticker_a = ? AND ticker_b = ? AND lookback_days = ?""",
+            (a, b, lookback_days),
+        ).fetchone()
+        if not row:
+            return None
+        try:
+            computed = datetime.fromisoformat(row["computed_at"])
+            # Compare against UTC to match SQLite's datetime('now')
+            if (datetime.utcnow() - computed).days > 7:
+                return None  # Stale
+        except Exception:
+            return None
+        return row["correlation"]
+
+
+def get_correlations_for_ticker(ticker: str, lookback_days: int = 90):
+    """Get all cached correlations for a ticker. Returns {other_ticker: correlation}."""
+    ticker = ticker.upper()
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT ticker_a, ticker_b, correlation, computed_at FROM correlation_cache
+            WHERE (ticker_a = ? OR ticker_b = ?) AND lookback_days = ?""",
+            (ticker, ticker, lookback_days),
+        ).fetchall()
+        result = {}
+        for r in rows:
+            try:
+                computed = datetime.fromisoformat(r["computed_at"])
+                # Compare against UTC to match SQLite's datetime('now')
+                if (datetime.utcnow() - computed).days > 7:
+                    continue
+            except Exception:
+                continue
+            other = r["ticker_b"] if r["ticker_a"] == ticker else r["ticker_a"]
+            result[other] = r["correlation"]
+        return result
+
+
+def prune_stale_correlations(max_age_days: int = 7):
+    """Delete correlation entries older than N days. Parameterized safely for SQLite."""
+    with get_db() as conn:
+        conn.execute(
+            "DELETE FROM correlation_cache WHERE computed_at < datetime('now', ?)",
+            (f"-{max_age_days} days",),
+        )
+

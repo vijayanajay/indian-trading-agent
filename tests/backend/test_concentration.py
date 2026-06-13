@@ -1,6 +1,12 @@
 import pytest
+import pandas as pd
 from unittest.mock import patch
-from backend.concentration import get_sector_allocation, check_new_trade_concentration
+from backend.concentration import (
+    get_sector_allocation,
+    check_new_trade_concentration,
+    compute_pairwise_correlation,
+    check_correlation_clustering,
+)
 
 @patch("backend.concentration.get_analysis_history")
 @patch("backend.concentration.list_paper_trades")
@@ -56,3 +62,54 @@ def test_get_sector_allocation_with_custom_sizing(mock_list_paper, mock_get_anal
     assert result["total_positions"] == 2
     assert result["total_allocated"] == 75000.0 + 50000.0
     assert result["total_allocated_pct"] == 25.0
+
+
+@patch("backend.concentration.get_correlation")
+@patch("backend.concentration.save_correlation")
+@patch("backend.concentration._fetch_returns")
+def test_compute_pairwise_correlation(mock_fetch, mock_save, mock_get):
+    # Case 1: Cache hit
+    mock_get.return_value = 0.55
+    res = compute_pairwise_correlation("INFY", "TCS")
+    assert res == 0.55
+    mock_fetch.assert_not_called()
+
+    # Case 2: Cache miss, fetch returns
+    mock_get.return_value = None
+    ret_a = pd.Series([float(i) for i in range(25)])
+    ret_b = pd.Series([float(i) for i in range(25)])
+    
+    mock_fetch.side_effect = [ret_a, ret_b]
+    
+    res = compute_pairwise_correlation("INFY", "TCS")
+    # Verify correlation calculation (should be 1.0 since inputs are identical)
+    assert res is not None
+    assert round(res, 2) == 1.0
+    mock_save.assert_called_once()
+
+
+@patch("backend.concentration.get_open_positions")
+@patch("backend.concentration.get_avg_correlation_with_portfolio")
+def test_check_correlation_clustering(mock_get_avg, mock_get_pos):
+    # Mock open positions
+    mock_get_pos.return_value = [
+        {"ticker": "TCS"},
+        {"ticker": "WIPRO"},
+    ]
+    
+    # Mock average correlation check returns
+    mock_get_avg.return_value = {
+        "avg_correlation": 0.75,
+        "pairwise": {"TCS": 0.78, "WIPRO": 0.72},
+        "max_correlation": 0.78,
+        "max_correlation_ticker": "TCS",
+        "n_computed": 2,
+        "n_total": 2,
+    }
+    
+    res = check_correlation_clustering("INFY", threshold=0.70)
+    assert res["would_cluster"] is True
+    assert res["score_adjustment"] == -1.5  # High correlation cluster (>= 2 partners > 0.70)
+    assert len(res["warnings"]) == 1
+    assert "High correlation cluster" in res["warnings"][0]
+

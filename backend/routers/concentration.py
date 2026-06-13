@@ -7,15 +7,27 @@ from backend.concentration import (
     check_new_trade_concentration,
     get_open_positions,
     get_sector_for_ticker,
+    check_correlation_clustering,
 )
 
 router = APIRouter(prefix="/api/concentration", tags=["concentration"])
 
 
 @router.get("/summary")
-def summary():
+def summary(total_capital: float = Query(500000, gt=0), fetch_if_missing: bool = Query(True)):
     """High-level concentration summary for dashboard widget."""
-    return get_concentration_summary()
+    return get_concentration_summary(total_capital=total_capital, fetch_if_missing=fetch_if_missing)
+
+
+@router.get("/correlation/{ticker}")
+def get_correlation_check(
+    ticker: str,
+    total_capital: float = Query(500000, gt=0),
+    fetch_if_missing: bool = Query(True),
+):
+    """Check correlation clustering risk for a ticker against open positions."""
+    return check_correlation_clustering(ticker, total_capital=total_capital, fetch_if_missing=fetch_if_missing)
+
 
 
 @router.get("/allocation")

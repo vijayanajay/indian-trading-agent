@@ -15,10 +15,21 @@ Outputs:
 - Score adjustment for the recommendation engine to penalize concentrated bets
 """
 
+import numpy as np
+import pandas as pd
+import yfinance as yf
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
 from typing import Optional
 from backend.cyclical import SECTOR_MAP
-from backend.db import list_paper_trades, get_analysis_history
+from backend.db import (
+    list_paper_trades,
+    get_analysis_history,
+    get_correlation,
+    save_correlation,
+    get_db,
+)
+from tradingagents.utils.ticker import normalize_ticker
 
 
 # Build reverse map: ticker -> sector for quick lookup
@@ -210,9 +221,9 @@ def check_new_trade_concentration(
     }
 
 
-def get_concentration_summary() -> dict:
-    """High-level summary for dashboard display."""
-    allocation = get_sector_allocation()
+def get_concentration_summary(total_capital: float = 500000, fetch_if_missing: bool = True) -> dict:
+    """High-level summary for dashboard display, modified to support optional correlation fetches."""
+    allocation = get_sector_allocation(total_capital)
 
     # Top sectors by exposure
     sectors_sorted = sorted(
@@ -235,6 +246,41 @@ def get_concentration_summary() -> dict:
         risk_level = "NONE"
         risk_reason = "No open positions"
 
+    # --- Correlation clustering summary ---
+    # Check if top sector positions are actually a correlation cluster
+    correlation_risk = "LOW"
+    correlation_reason = "Positions are sufficiently diversified"
+    
+    if top_sector and top_sector[1]["count"] >= 2:
+        # Sample up to 3 tickers from top sector for correlation check
+        sample_tickers = [p["ticker"] for p in top_sector[1].get("positions", [])[:3]]
+        if len(sample_tickers) >= 2:
+            pair_corrs = []
+            for i in range(len(sample_tickers)):
+                for j in range(i + 1, len(sample_tickers)):
+                    c = compute_pairwise_correlation(
+                        sample_tickers[i],
+                        sample_tickers[j],
+                        fetch_if_missing=fetch_if_missing,
+                    )
+                    if c is not None:
+                        pair_corrs.append(abs(c))
+            
+            if pair_corrs:
+                mean_corr = np.mean(pair_corrs)
+                if mean_corr > HIGH_CORRELATION_THRESHOLD:
+                    correlation_risk = "HIGH"
+                    correlation_reason = (
+                        f"Your {top_sector[0]} positions move {mean_corr:.0%} together — "
+                        "this is one concentrated bet, not diversification."
+                    )
+                elif mean_corr > HIGH_CORRELATION_THRESHOLD * 0.8:
+                    correlation_risk = "MEDIUM"
+                    correlation_reason = (
+                        f"{top_sector[0]} positions are {mean_corr:.0%} correlated — "
+                        "approaching cluster risk."
+                    )
+
     return {
         "risk_level": risk_level,
         "risk_reason": risk_reason,
@@ -248,4 +294,236 @@ def get_concentration_summary() -> dict:
         "by_sector": allocation["by_sector"],
         "concentrated_sectors": allocation["concentrated_sectors"],
         "limits": allocation["limits"],
+        "correlation_risk": correlation_risk,
+        "correlation_reason": correlation_reason,
     }
+
+
+# ============================================================
+# CORRELATION-AWARE ANTI-CLUSTERING
+# ============================================================
+
+CORRELATION_LOOKBACK_DAYS = 90   # ~3 months of trading data
+HIGH_CORRELATION_THRESHOLD = 0.70  # Flag if avg correlation > 70%
+MAX_CORRELATED_POSITIONS = 2       # Allow max 2 positions with avg corr > 0.70
+
+def _fetch_returns(ticker: str, days: int = CORRELATION_LOOKBACK_DAYS) -> pd.Series | None:
+    """Fetch daily returns for a ticker over N days. Returns pd.Series with DatetimeIndex or None on failure."""
+    try:
+        symbol = normalize_ticker(ticker)
+        t = yf.Ticker(symbol)
+        # Add buffer for weekends/holidays
+        hist = t.history(period=f"{int(days * 1.5)}d")
+        if hist.empty or len(hist) < days // 2:
+            return None
+        hist = hist.dropna(subset=["Close"])
+        returns = hist["Close"].pct_change().dropna()
+        if len(returns) < 20:
+            return None
+        # Ensure timezone-naive DatetimeIndex for perfect alignment
+        if returns.index.tz is not None:
+            returns.index = returns.index.tz_convert(None)
+        return returns.tail(days)
+    except Exception:
+        return None
+
+def compute_pairwise_correlation(
+    ticker_a: str,
+    ticker_b: str,
+    ret_a: pd.Series = None,
+    ret_b: pd.Series = None,
+    fetch_if_missing: bool = True,
+) -> float | None:
+    """Compute Pearson correlation between two tickers using date-aligned Pandas series. Uses cache if fresh."""
+    # Check cache first
+    cached = get_correlation(ticker_a, ticker_b, CORRELATION_LOOKBACK_DAYS)
+    if cached is not None:
+        return cached
+
+    if not fetch_if_missing:
+        return None
+
+    # Fetch returns if not provided pre-aligned
+    if ret_a is None:
+        ret_a = _fetch_returns(ticker_a)
+    if ret_b is None:
+        ret_b = _fetch_returns(ticker_b)
+
+    if ret_a is None or ret_b is None:
+        return None
+
+    # Crucial: Align indices (dates) using dictionary keys to prevent column naming overlap warnings
+    df = pd.concat({"a": ret_a, "b": ret_b}, axis=1, join="inner")
+    if len(df) < 20:
+        return None
+
+    # Compute date-aligned Pearson correlation
+    corr = float(df["a"].corr(df["b"]))
+    if np.isnan(corr):
+        return None
+
+    # Cache result
+    save_correlation(ticker_a, ticker_b, corr, CORRELATION_LOOKBACK_DAYS)
+    return corr
+
+def get_avg_correlation_with_portfolio(ticker: str, open_tickers: list[str], fetch_if_missing: bool = True):
+    """Compute average correlation of `ticker` against all open positions.
+    
+    Checks cache first. If missing and fetch_if_missing is True, fetches candidate returns
+    once and open position returns in parallel using a ThreadPoolExecutor.
+    """
+    if not open_tickers:
+        return {
+            "avg_correlation": None,
+            "pairwise": {},
+            "max_correlation": None,
+            "max_correlation_ticker": None,
+            "n_computed": 0,
+            "n_total": 0,
+        }
+
+    pairwise = {}
+    missing_tickers = []
+
+    # Satisfy cache lookups first
+    for ot in open_tickers:
+        cached = get_correlation(ticker, ot, CORRELATION_LOOKBACK_DAYS)
+        if cached is not None:
+            pairwise[ot] = cached
+        else:
+            missing_tickers.append(ot)
+
+    # Perform thread-safe parallel fetches only for missing entries, fetching candidate ONCE.
+    # To prevent SQLite write lock contention, threads only fetch data from yfinance;
+    # alignment and DB cache saves are performed sequentially on the main thread.
+    if missing_tickers and fetch_if_missing:
+        ret_candidate = _fetch_returns(ticker)
+        if ret_candidate is not None:
+            returns_map = {}
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                futures = {executor.submit(_fetch_returns, ot): ot for ot in missing_tickers}
+                for f in as_completed(futures):
+                    ot = futures[f]
+                    try:
+                        ret_ot = f.result()
+                        if ret_ot is not None:
+                            returns_map[ot] = ret_ot
+                    except Exception:
+                        pass
+
+            # Compute and save correlations on the main thread sequentially
+            for ot, ret_ot in returns_map.items():
+                corr = compute_pairwise_correlation(ticker, ot, ret_candidate, ret_ot, fetch_if_missing=True)
+                if corr is not None:
+                    pairwise[ot] = corr
+
+    if not pairwise:
+        return {
+            "avg_correlation": None,
+            "pairwise": {},
+            "max_correlation": None,
+            "max_correlation_ticker": None,
+            "n_computed": 0,
+            "n_total": len(open_tickers),
+        }
+
+    correlations = list(pairwise.values())
+    avg_corr = float(np.mean(correlations))
+    max_corr = max(correlations)
+    max_ticker = max(pairwise, key=pairwise.get)
+
+    return {
+        "avg_correlation": round(avg_corr, 3),
+        "pairwise": {k: round(v, 3) for k, v in pairwise.items()},
+        "max_correlation": round(max_corr, 3),
+        "max_correlation_ticker": max_ticker,
+        "n_computed": len(pairwise),
+        "n_total": len(open_tickers),
+    }
+
+def check_correlation_clustering(
+    ticker: str,
+    total_capital: float = 500000,
+    threshold: float = HIGH_CORRELATION_THRESHOLD,
+    fetch_if_missing: bool = True,
+):
+    """Check if adding `ticker` would create a high-correlation cluster."""
+    # Get open positions (same source as sector concentration)
+    open_positions = get_open_positions()
+    open_tickers = [p["ticker"] for p in open_positions if p.get("ticker")]
+
+    # Exclude self if already in portfolio (shouldn't happen, but safety)
+    open_tickers = [t for t in open_tickers if t.upper() != ticker.upper()]
+
+    if not open_tickers:
+        return {
+            "ticker": ticker,
+            "would_cluster": False,
+            "avg_correlation": None,
+            "max_correlation": None,
+            "max_correlation_ticker": None,
+            "cluster_tickers": [],
+            "warnings": [],
+            "score_adjustment": 0.0,
+            "n_open_positions": 0,
+            "n_computed": 0,
+        }
+
+    corr_data = get_avg_correlation_with_portfolio(ticker, open_tickers, fetch_if_missing=fetch_if_missing)
+    avg_corr = corr_data["avg_correlation"]
+    max_corr = corr_data["max_correlation"]
+    max_ticker = corr_data["max_correlation_ticker"]
+
+    warnings = []
+    score_adj = 0.0
+    would_cluster = False
+    cluster_tickers = []
+
+    if avg_corr is not None:
+        # Count how many existing positions have correlation > threshold
+        high_corr_partners = [
+            t for t, c in corr_data["pairwise"].items()
+            if abs(c) > threshold
+        ]
+
+        if len(high_corr_partners) >= MAX_CORRELATED_POSITIONS:
+            would_cluster = True
+            cluster_tickers = high_corr_partners[:MAX_CORRELATED_POSITIONS]
+            warnings.append(
+                f"High correlation cluster: {ticker} correlates "
+                f"{corr_data['pairwise'][cluster_tickers[0]]:.0%} with "
+                f"{cluster_tickers[0]}"
+                + (f" and {corr_data['pairwise'][cluster_tickers[1]]:.0%} with {cluster_tickers[1]}"
+                   if len(cluster_tickers) > 1 else "")
+                + " — you're making one bet, not multiple."
+            )
+            score_adj -= 1.5
+        elif avg_corr > threshold:
+            would_cluster = True
+            cluster_tickers = [max_ticker] if max_ticker else []
+            warnings.append(
+                f"{ticker} averages {avg_corr:.0%} correlation with your open positions "
+                f"({max_corr:.0%} with {max_ticker}) — adds redundant risk, not diversification."
+            )
+            score_adj -= 1.0
+        elif avg_corr > threshold * 0.8:
+            # Soft warning at 80% of threshold
+            warnings.append(
+                f"{ticker} is approaching correlation limit: {avg_corr:.0%} avg "
+                f"(threshold {threshold:.0%}). Consider a different sector."
+            )
+            score_adj -= 0.5
+
+    return {
+        "ticker": ticker,
+        "would_cluster": would_cluster,
+        "avg_correlation": avg_corr,
+        "max_correlation": max_corr,
+        "max_correlation_ticker": max_ticker,
+        "cluster_tickers": cluster_tickers,
+        "warnings": warnings,
+        "score_adjustment": round(score_adj, 2),
+        "n_open_positions": len(open_tickers),
+        "n_computed": corr_data["n_computed"],
+    }
+

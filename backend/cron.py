@@ -274,6 +274,45 @@ def retrain_calibration_model() -> dict:
     return res
 
 
+def precompute_correlations():
+    """Pre-compute correlations for NIFTY 50 pairs daily to warm up the cache."""
+    try:
+        from backend.concentration import compute_pairwise_correlation, _fetch_returns
+        from backend.scanner import NIFTY_100
+        import itertools
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        # Only compute for top 50 to keep it fast (~1225 pairs)
+        top_50 = NIFTY_100[:50]
+        
+        # Fetch returns for all 50 tickers once in parallel to avoid rate limits
+        logger.info("Pre-fetching returns for NIFTY 50 tickers in parallel...")
+        returns_cache = {}
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = {executor.submit(_fetch_returns, ticker): ticker for ticker in top_50}
+            for f in as_completed(futures):
+                ticker = futures[f]
+                try:
+                    ret = f.result()
+                    if ret is not None:
+                        returns_cache[ticker] = ret
+                except Exception as e:
+                    logger.warning(f"Failed to fetch returns for {ticker}: {e}")
+        
+        # Compute all pairwise combinations using pre-fetched returns sequentially on main thread
+        computed = 0
+        for a, b in itertools.combinations(top_50, 2):
+            ret_a = returns_cache.get(a)
+            ret_b = returns_cache.get(b)
+            if ret_a is not None and ret_b is not None:
+                c = compute_pairwise_correlation(a, b, ret_a, ret_b, fetch_if_missing=False)
+                if c is not None:
+                    computed += 1
+        logger.info(f"Pre-computed {computed} correlations for NIFTY 50.")
+    except Exception as e:
+        logger.error(f"Correlation pre-computation failed: {e}")
+
+
+
 def _cron_loop():
     """Background runner loop checking and running tasks."""
     logger.info("Background Cron Daemon started.")
@@ -307,6 +346,21 @@ def _cron_loop():
 
             if should_run_fp:
                 recompute_fingerprints_and_features_for_last_180_days()
+
+            # 1b. Correlation cache pre-computation - run daily
+            last_corr_run = get_setting("last_correlation_precompute_run")
+            should_run_corr = True
+            if last_corr_run:
+                try:
+                    last_run_dt = datetime.fromisoformat(last_corr_run)
+                    if (now - last_run_dt) < timedelta(days=1):
+                        should_run_corr = False
+                except Exception:
+                    pass
+
+            if should_run_corr:
+                precompute_correlations()
+                set_setting("last_correlation_precompute_run", now.isoformat())
 
             # 2. Calibration retraining - run weekly
             last_train_run = get_setting("last_model_retrain_run")

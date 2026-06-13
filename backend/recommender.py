@@ -619,12 +619,47 @@ def _apply_event_filter(result: dict, event_filter: dict) -> dict:
     return _recompute_confidence_and_counts(result, include_filters=True)
 
 
+def _apply_correlation_filter(result: dict, correlation_check: dict) -> dict:
+    """Apply correlation clustering penalty if the stock moves too similarly to existing positions."""
+    if not correlation_check:
+        return result
+
+    adj = correlation_check.get("score_adjustment", 0)
+    if adj == 0:
+        return result
+
+    new_score = round(result["score"] + adj, 2)
+    warnings = correlation_check.get("warnings", [])
+
+    corr_signal = {
+        "type": "Correlation Clustering",
+        "direction": "BEARISH",
+        "value": "; ".join(warnings) if warnings else "High correlation with existing positions",
+        "weight": adj,
+        "metadata": {
+            "avg_correlation": correlation_check.get("avg_correlation"),
+            "max_correlation": correlation_check.get("max_correlation"),
+            "max_correlation_ticker": correlation_check.get("max_correlation_ticker"),
+            "cluster_tickers": correlation_check.get("cluster_tickers", []),
+        },
+    }
+    result.setdefault("filter_adjustments", []).append(corr_signal)
+    result["correlation_warning"] = "; ".join(warnings) if warnings else None
+    result["correlation_breach"] = correlation_check.get("would_cluster", False)
+
+    # Re-compute honest assessment, direction, and trade plan
+    _recompute_assessment_and_trade_plan(result, new_score)
+
+    return _recompute_confidence_and_counts(result, include_filters=True)
+
+
 def recommend(
     universe: str = "nifty100",
     min_signals: int = 2,
     apply_market_bias: bool = True,
     apply_event_filter: bool = True,
     apply_concentration_check: bool = True,
+    apply_correlation_check: bool = True,
     total_capital: float = 500000,
 ) -> dict:
     """Run recommendation engine across a stock universe.
@@ -720,6 +755,19 @@ def recommend(
                         result = _apply_concentration_filter(result, conc_check)
                     except Exception:
                         pass
+                # Apply correlation clustering check (only on bullish signals)
+                if apply_concentration_check and apply_correlation_check and result.get("direction") in ("STRONG BUY", "BUY"):
+                    try:
+                        from backend.concentration import check_correlation_clustering
+                        corr_check = check_correlation_clustering(
+                            result["ticker"],
+                            total_capital=total_capital,
+                            fetch_if_missing=apply_correlation_check, # Propagate network fetch status
+                        )
+                        if corr_check:
+                            result = _apply_correlation_filter(result, corr_check)
+                    except Exception as e:
+                        print(f"[Recommender] Correlation check failed: {e}", flush=True)
                 # Pop internal helper arrays before appending to results
                 result.pop("_highs", None)
                 result.pop("_lows", None)

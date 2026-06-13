@@ -89,7 +89,8 @@ def compute_daily_verdict() -> dict:
     # === 3. Sector Concentration ===
     try:
         from backend.concentration import get_concentration_summary
-        conc = get_concentration_summary()
+        # Bypasses yfinance network correlation fetches during the synchronous daily verdict check
+        conc = get_concentration_summary(fetch_if_missing=False)
         filter_results["concentration"] = conc
 
         if conc["risk_level"] == "HIGH":
@@ -110,6 +111,7 @@ def compute_daily_verdict() -> dict:
             apply_market_bias=False,
             apply_event_filter=False,
             apply_concentration_check=False,
+            apply_correlation_check=False,   # <-- Skip network fetches for correlation
         )
         filter_results["recommendation_counts"] = {
             "strong_buys": len(recs["strong_buys"]),
