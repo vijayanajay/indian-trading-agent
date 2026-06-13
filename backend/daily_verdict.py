@@ -128,63 +128,8 @@ def compute_daily_verdict() -> dict:
     except Exception as e:
         print(f"[Daily Verdict] Recommender check failed: {e}", flush=True)
         filter_results["recommendation_counts"] = None
-        caution_flags.append("Recommender unavailable — cannot verify setups")
 
     # === DECISION LOGIC ===
-    caution_count = len(caution_flags)
-    favorable_count = len(favorable_flags)
-
-    if caution_count >= 3:
-        verdict = "RED"
-        label = "STAND DOWN"
-        action = "Skip the day or paper trade only. Too many risk factors aligned."
-        position_size = 0.0
-        max_trades = 0
-        min_conviction = "HIGH"
-    elif caution_count >= 2:
-        verdict = "RED"
-        label = "STAND DOWN"
-        action = "Don't open new positions. Manage existing trades only."
-        position_size = 0.0
-        max_trades = 0
-        min_conviction = "HIGH"
-    elif caution_count == 1 and favorable_count == 0:
-        verdict = "YELLOW"
-        label = "SELECTIVE"
-        action = "Trade only HIGH conviction setups. Reduce position size to 50%."
-        position_size = 0.5
-        max_trades = 2
-        min_conviction = "HIGH"
-    elif caution_count == 1 and favorable_count >= 1:
-        verdict = "YELLOW"
-        label = "SELECTIVE"
-        action = "Mixed signals. HIGH conviction trades only at 75% size."
-        position_size = 0.75
-        max_trades = 3
-        min_conviction = "HIGH"
-    elif favorable_count >= 2:
-        verdict = "GREEN"
-        label = "TRADE"
-        action = "Aggressive day. Take multiple setups with full position sizing."
-        position_size = 1.0
-        max_trades = 5
-        min_conviction = "MEDIUM"
-    elif favorable_count == 1:
-        verdict = "GREEN"
-        label = "TRADE"
-        action = "Favorable conditions. Trade normally with disciplined size."
-        position_size = 1.0
-        max_trades = 4
-        min_conviction = "MEDIUM"
-    else:
-        verdict = "YELLOW"
-        label = "SELECTIVE"
-        action = "Quiet day, no clear edge. Trade only the best setups."
-        position_size = 0.75
-        max_trades = 2
-        min_conviction = "HIGH"
-
-    # === POST-DECISION ADJUSTMENTS FOR RECOMMENDER STATUS ===
     rec_counts = filter_results.get("recommendation_counts")
     recommender_failed = (rec_counts is None)
 
@@ -195,9 +140,64 @@ def compute_daily_verdict() -> dict:
         position_size = 0.0
         max_trades = 0
         min_conviction = "HIGH"
+    else:
+        caution_count = len(caution_flags)
+        favorable_count = len(favorable_flags)
+
+        if caution_count >= 3:
+            verdict = "RED"
+            label = "STAND DOWN"
+            action = "Skip the day or paper trade only. Too many risk factors aligned."
+            position_size = 0.0
+            max_trades = 0
+            min_conviction = "HIGH"
+        elif caution_count >= 2:
+            verdict = "RED"
+            label = "STAND DOWN"
+            action = "Don't open new positions. Manage existing trades only."
+            position_size = 0.0
+            max_trades = 0
+            min_conviction = "HIGH"
+        elif caution_count == 1 and favorable_count == 0:
+            verdict = "YELLOW"
+            label = "SELECTIVE"
+            action = "Trade only HIGH conviction setups. Reduce position size to 50%."
+            position_size = 0.5
+            max_trades = 2
+            min_conviction = "HIGH"
+        elif caution_count == 1 and favorable_count >= 1:
+            verdict = "YELLOW"
+            label = "SELECTIVE"
+            action = "Mixed signals. HIGH conviction trades only at 75% size."
+            position_size = 0.75
+            max_trades = 3
+            min_conviction = "HIGH"
+        elif favorable_count >= 2:
+            verdict = "GREEN"
+            label = "TRADE"
+            action = "Aggressive day. Take multiple setups with full position sizing."
+            position_size = 1.0
+            max_trades = 5
+            min_conviction = "MEDIUM"
+        elif favorable_count == 1:
+            verdict = "GREEN"
+            label = "TRADE"
+            action = "Favorable conditions. Trade normally with disciplined size."
+            position_size = 1.0
+            max_trades = 4
+            min_conviction = "MEDIUM"
+        else:
+            verdict = "YELLOW"
+            label = "SELECTIVE"
+            action = "Quiet day, no clear edge. Trade only the best setups."
+            position_size = 0.75
+            max_trades = 2
+            min_conviction = "HIGH"
 
     # Build reasoning
     reasoning_parts = []
+    if recommender_failed:
+        reasoning_parts.append("Recommender unavailable — cannot verify setups")
     if caution_flags:
         reasoning_parts.append(f"Caution: {' · '.join(caution_flags)}")
     if favorable_flags:

@@ -39,6 +39,10 @@ To prevent repeating the same bugs and architectural mistakes, here is the list 
 *   **The Anti-Pattern**: Hardcoding long-only P&L calculations (`(price - entry) / entry * 100`) in counterfactual trackers (like shadow trades) because the current active configuration only tracks buys. If short signals are later enabled or recorded, their P&Ls become inverted, poisoning the ML calibration datasets with corrupted labels.
 *   **The Rule**: Always calculate shadow/paper trade P&Ls using a direction-aware multiplier (e.g. `multiplier = 1 if LONG else -1`) to ensure schema columns and ML model retraining logic remain structurally consistent and future-proof.
 
+### 9. System Outage vs. Market Risk Decoupling
+*   **The Anti-Pattern**: Treating technical system failures (e.g., recommender scan timeouts or API outages) as standard market caution flags in decision arrays, or modifying final decision outcomes post-hoc. This leads to double-counting cautions and mismatching the reasoning states stored in the database or rendered in the UI (e.g., a "RED / STAND DOWN" verdict displaying a low caution flag count).
+*   **The Rule**: Keep technical system health overrides completely decoupled from market risk evaluation decision tables. Check system-level failures first as a hard short-circuit/override. Do not append technical errors to standard caution/risk flags, ensuring that caution counts, actions, and labels are always atomically aligned and clean for UI rendering and calibration history.
+
 ---
 
 ## Implemented Changes by Subsystem
@@ -72,7 +76,7 @@ To prevent repeating the same bugs and architectural mistakes, here is the list 
 
 ### 5. UI, API & Daily Verdict Architecture
 *   **API Deprecations**: Retired legacy manual weight overrides and weight-tuning API endpoints (`/apply`, `/reset`) by raising HTTP 400 Bad Request.
-*   **Fail-Safe Verdicts**: Restructured [daily_verdict.py](file:///d:/Code/indian-trading-agent/backend/daily_verdict.py) to force red stand-down verdicts when the underlying recommender engine throws exceptions, and bypassed stock-level filters during scan passes to prevent double-penalizing risk adjustments.
+*   **Fail-Safe Verdicts**: Restructured [daily_verdict.py](file:///d:/Code/indian-trading-agent/backend/daily_verdict.py) to force red stand-down verdicts when the underlying recommender engine throws exceptions, and bypassed stock-level filters during scan passes to prevent double-penalizing risk adjustments. Handled recommender failures as a clean decision logic override rather than a post-decision override to prevent caution count desynchronization and double-counting issues.
 *   **Frontend Dashboard Pages**:
     *   **Simulation & Performance**: Rendered `"HOLD"` signals (colored gray, excluded from win rate calculations) on the simulation page, and added live market `<RegimeBadge />` updates and model coefficient tables on the Signal Performance page.
     *   **Risk & Position badges**: Rendered `HonestAssessmentBadge` and trade plans with entry, target, and stop-loss levels. Added a pre-trade checkbox on the dashboard to require risk acknowledgment before tracking paper trades.

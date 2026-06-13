@@ -207,7 +207,9 @@ def test_compute_daily_verdict_recommender_failed_forces_zero_trades(mock_recomm
     assert res["max_trades_today"] == 0
     assert res["recommended_position_size_pct"] == 0.0
     assert res["min_conviction_required"] == "HIGH"
-    assert any("Recommender unavailable" in c for c in res["caution_flags"])
+    assert len(res["caution_flags"]) == 0
+    assert "Recommender unavailable" in res["action"]
+    assert "Recommender unavailable" in res["reasoning"]
 
 
 @patch("backend.fii_dii.get_market_bias")
