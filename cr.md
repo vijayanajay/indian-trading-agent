@@ -31,13 +31,21 @@ To prevent repeating the same bugs and architectural mistakes, here is the list 
 *   **The Anti-Pattern**: Executing queries in loops (N+1 query problem) when fetching trade stats, causing performance degradation under load, and swallowing exceptions silently.
 *   **The Rule**: Batch database operations using `IN` clauses, implement in-memory caching for repetitive computations, and always use structured logging to surface errors rather than swallowing them.
 
+### 7. Technical Indicator Fidelity (Volatility Calculations)
+*   **The Anti-Pattern**: Mixing indicator definitions or using simple arithmetic means (SMA) where Wilder's smoothing/exponential smoothing is mathematically specified and expected (e.g. for Average True Range). This underestimates short-term volatility spikes, leading to overly tight stop-losses and premature stop-outs.
+*   **The Rule**: Ensure mathematical implementations of indicators strictly match the industry standards described in their documentation/docstrings. Volatility measures (such as ATR) must use proper smoothing methods if they serve as inputs for risk-management parameters (stop-losses, target levels, or position sizes).
+
+### 8. Shadow Trade Direction-Awareness
+*   **The Anti-Pattern**: Hardcoding long-only P&L calculations (`(price - entry) / entry * 100`) in counterfactual trackers (like shadow trades) because the current active configuration only tracks buys. If short signals are later enabled or recorded, their P&Ls become inverted, poisoning the ML calibration datasets with corrupted labels.
+*   **The Rule**: Always calculate shadow/paper trade P&Ls using a direction-aware multiplier (e.g. `multiplier = 1 if LONG else -1`) to ensure schema columns and ML model retraining logic remain structurally consistent and future-proof.
+
 ---
 
 ## Implemented Changes by Subsystem
 
 ### 1. Recommender Engine & Signal Generation
 *   **Gap Strategy Alignment**: Fixed the direction logic for gap-down filled signals to map bullish recovery as bearish fade (weight `-1.5`, `"Gap Down (Filled - Fade)"`) in [recommender.py](file:///d:/Code/indian-trading-agent/backend/recommender.py) and [performance.py](file:///d:/Code/indian-trading-agent/backend/performance.py). Corrected gap-up open unfilled signals to emit short trades unconditionally on green candle days. Redefined gap fill detection to utilize intraday price extremes (`current_high`/`current_low`) instead of EOD closes in [recommender.py](file:///d:/Code/indian-trading-agent/backend/recommender.py), [performance.py](file:///d:/Code/indian-trading-agent/backend/performance.py), and [scanner.py](file:///d:/Code/indian-trading-agent/backend/scanner.py).
-*   **Technical Indicator Accuracy**: Implemented Wilder's RSI calculation with exponential smoothing over the full historical closes series, fixing array slicing bugs in `_compute_rsi` and removing the simple-average 15-day lookup logic.
+*   **Technical Indicator Accuracy**: Implemented Wilder's RSI calculation with exponential smoothing over the full historical closes series, fixing array slicing bugs in `_compute_rsi` and removing the simple-average 15-day lookup logic. Corrected [recommender.py](file:///d:/Code/indian-trading-agent/backend/recommender.py) `compute_atr` to use proper Wilder's exponential smoothing instead of a simple arithmetic mean, ensuring stop-losses are not set too tight during high-volatility regimes.
 *   **Atomic Filter Workflows**: Unified recommender filter logic (Market Bias, Sector Concentration, Event Risks) in [recommender.py](file:///d:/Code/indian-trading-agent/backend/recommender.py). Moved post-filter evaluations into a shared atomic helper `_recompute_assessment_and_trade_plan()` to avoid stale target/stop-loss prices and out-of-sync conviction tags.
 *   **Sector & Event Penalties**: Extended macro event calendars to check look-ahead periods (≤1 day for RBI rate policy, ≤2 days for FOMC). Implemented beta-weighted sector-aware penalties in [calendar_data.py](file:///d:/Code/indian-trading-agent/backend/calendar_data.py) and sector concentration cap checks using trade-specific position sizes instead of hardcoded 10% cash assumptions in [concentration.py](file:///d:/Code/indian-trading-agent/backend/concentration.py).
 *   **Error Management**: Replaced silent exception swallowing in `_analyze_stock()` with structured logging and surfaced skipped/failed tickers to the UI layer.
@@ -60,6 +68,7 @@ To prevent repeating the same bugs and architectural mistakes, here is the list 
 *   **Performance Optimization**: Resolved N+1 query loops when fetching shadow or paper trades by batching signal performance cache queries using `IN` filters and implementing memory caching for identical configurations.
 *   **Cron Daemon & Thread Safety**: Created a background cron daemon in [cron.py](file:///d:/Code/indian-trading-agent/backend/cron.py) to daily rebuild cache tables, weekly retrain calibration models, and check auto-stop-loss conditions. Implemented thread-safe `_RETRAIN_LOCK` around ML training passes and decoupled checks from price refresh loops.
 *   **Fallback Resolution**: Primed signal performance caches during migrations, and added direct Python-based parsing for null fingerprints to fall back dynamically on JSON signals and entry regimes rather than failing back to exploratory defaults.
+*   **Shadow Trade Direction-Aware P&L**: Updated `refresh_shadow_prices()` in `backend/shadow_trades.py` to fetch the `signal` direction from the database and apply a direction multiplier when calculating horizon P&Ls, preventing silent label inversion during signal model retraining.
 
 ### 5. UI, API & Daily Verdict Architecture
 *   **API Deprecations**: Retired legacy manual weight overrides and weight-tuning API endpoints (`/apply`, `/reset`) by raising HTTP 400 Bad Request.
@@ -74,5 +83,4 @@ To prevent repeating the same bugs and architectural mistakes, here is the list 
 
 ## Rejected Changes
 
-- **Shadow Trade P&L Inverted for Bearish Signals**: Assumed that P&L calculation is inverted for bearish shadow trades. This was rejected because the shadow trade recorder currently only tracks `"STRONG BUY"` and `"BUY"` recommendations in the database. Consequently, no bearish shadow trades are stored in production, making the current P&L calculation correct for all recorded entries, and the proposed fix redundant under the user's long-only trading architecture.
 - **Baseline Volatility Samples Wrong Historical Windows**: Assumed that the baseline volatility calculation in `backend/market_regime.py::classify_regime_for_date()` samples from random disjoint historical windows and proposed replacing `closes[:-i]` with `closes[-i-20:-i]`. This was rejected because the current code already computes rolling, overlapping 20-day volatilities spaced 5 days apart. Furthermore, the suggested fix slices an array of exactly 20 elements, which fails the internal length check in `_annualized_vol()` (which requires `window + 1` or 21 elements) and would cause it to always return `0.0`, breaking the `HIGH_VOL` regime detector. Even if corrected to 21 elements (`closes[-i-21:-i]`), the result is index-wise identical to the current code.

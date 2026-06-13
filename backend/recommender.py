@@ -117,7 +117,13 @@ def compute_atr(highs, lows, closes, period=14):
             abs(lows[i] - closes[i - 1])
         )
         tr_list.append(tr)
-    return float(np.mean(tr_list[-period:]))
+    
+    # Wilder's smoothing
+    atr = np.mean(tr_list[:period])  # seed
+    for tr in tr_list[period:]:
+        atr = (atr * (period - 1) + tr) / period
+    return float(atr)
+
 
 
 

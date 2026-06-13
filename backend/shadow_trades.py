@@ -140,7 +140,7 @@ def refresh_shadow_prices() -> dict:
 
     with get_db() as conn:
         rows = conn.execute(
-            """SELECT ticker, signal_date, entry_price,
+            """SELECT ticker, signal_date, entry_price, signal,
                       price_1d, price_3d, price_5d, price_10d
                FROM shadow_trades
                ORDER BY signal_date DESC"""
@@ -169,7 +169,9 @@ def refresh_shadow_prices() -> dict:
             updates[f"price_{horizon_label}"] = price
             entry_p = r["entry_price"]
             if entry_p:
-                pnl_pct = (price - entry_p) / entry_p * 100
+                direction = r.get("signal")
+                multiplier = -1 if direction and direction.upper() in ("SELL", "STRONG SELL", "SHORT") else 1
+                pnl_pct = multiplier * (price - entry_p) / entry_p * 100
                 updates[f"pnl_{horizon_label}_pct"] = round(pnl_pct, 3)
 
         if updates:

@@ -118,3 +118,67 @@ def test_refresh_shadow_prices_with_trading_days(mock_price_later, mock_get_db):
     query, params = update_calls[0][0]
     assert "price_1d = ?" in query
     assert "price_3d" not in query
+
+
+@patch("backend.shadow_trades.get_db")
+@patch("backend.simulation._price_n_days_later")
+def test_refresh_shadow_prices_direction_aware(mock_price_later, mock_get_db):
+    # Setup mock cursor and DB query for two trades: one BUY, one SELL
+    mock_conn = MagicMock()
+    mock_get_db.return_value.__enter__.return_value = mock_conn
+
+    mock_conn.execute.return_value.fetchall.return_value = [
+        {
+            "ticker": "TCS",
+            "signal_date": "2026-06-05",
+            "entry_price": 3000.0,
+            "signal": "BUY",
+            "price_1d": None,
+            "price_3d": None,
+            "price_5d": None,
+            "price_10d": None,
+        },
+        {
+            "ticker": "INFY",
+            "signal_date": "2026-06-05",
+            "entry_price": 3000.0,
+            "signal": "SELL",
+            "price_1d": None,
+            "price_3d": None,
+            "price_5d": None,
+            "price_10d": None,
+        }
+    ]
+    mock_price_later.return_value = 3100.0
+
+    with patch("backend.shadow_trades.date") as mock_date:
+        mock_date.today.return_value = date(2026, 6, 9) # Tuesday
+        mock_date.side_effect = lambda *args, **kw: date(*args, **kw)
+        
+        refresh_shadow_prices()
+
+    update_calls = [
+        call for call in mock_conn.execute.call_args_list 
+        if "UPDATE shadow_trades" in call[0][0]
+    ]
+    assert len(update_calls) == 2
+
+    # Map updates by ticker to verify P&L sign
+    updates_by_ticker = {}
+    for call_arg in update_calls:
+        query, params = call_arg[0]
+        ticker = params[-2]
+        updates_by_ticker[ticker] = params
+
+    # TCS (BUY): P&L = +3.333%
+    tcs_params = updates_by_ticker["TCS"]
+    assert tcs_params[0] == 3100.0
+    assert tcs_params[1] > 0
+    assert abs(tcs_params[1] - 3.333) < 0.001
+
+    # INFY (SELL): P&L = -3.333%
+    infy_params = updates_by_ticker["INFY"]
+    assert infy_params[0] == 3100.0
+    assert infy_params[1] < 0
+    assert abs(infy_params[1] - (-3.333)) < 0.001
+
