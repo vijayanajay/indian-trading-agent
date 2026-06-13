@@ -323,7 +323,6 @@ def get_event_filter_for_ticker(ticker: str, days_ahead: int = 2) -> dict:
     SECTOR_EVENT_SENSITIVITY = {
         "RBI_POLICY": ["Banks", "Finance", "Financial Services", "NBFCs"],
         "FOMC": ["IT", "Information Technology", "Pharma", "Chemicals"],
-        "BUDGET": ["Auto", "FMCG", "Energy", "Realty", "Metal", "Infrastructure"],
     }
 
     sector = get_sector_for_ticker(ticker)

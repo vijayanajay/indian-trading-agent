@@ -295,21 +295,21 @@ def test_get_event_filter_for_ticker():
         assert res["score_adjustment"] == 0.0
 
         # Test case 4: BUDGET tomorrow (1 day ahead)
-        # Sensitive sectors: Auto, FMCG, Energy, Realty, Metal, Infrastructure
+        # All sectors get full penalty (-2.0)
         mock_events.return_value = [
             {"type": "BUDGET", "date": tomorrow.strftime("%Y-%m-%d"), "name": "Union Budget"}
         ]
 
-        # RELIANCE (Energy) -> sensitive -> full penalty (-2.0)
+        # RELIANCE (Energy) -> full penalty (-2.0)
         res_rel = get_event_filter_for_ticker("RELIANCE", days_ahead=2)
         assert res_rel["has_event"] is True
         assert res_rel["score_adjustment"] == -2.0
         assert "Budget in 1 day(s)" in res_rel["warning"]
 
-        # SUNPHARMA (Pharma) -> non-sensitive -> reduced penalty (0.3 * -2.0 = -0.6)
+        # SUNPHARMA (Pharma) -> also full penalty (-2.0)
         res_sun = get_event_filter_for_ticker("SUNPHARMA", days_ahead=2)
         assert res_sun["has_event"] is True
-        assert res_sun["score_adjustment"] == -0.6
+        assert res_sun["score_adjustment"] == -2.0
 
 
 def test_recompute_confidence_and_counts_in_filters():
