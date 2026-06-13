@@ -66,7 +66,7 @@ To prevent repeating the same bugs and architectural mistakes, here is the list 
 
 ### 3. Simulation & Backtesting Engine
 *   **Market Calendar Advancement**: Replaced calendar-day increments with a custom `next_trading_day()` utility inside [simulation.py](file:///d:/Code/indian-trading-agent/backend/simulation.py) and [verdict_calibration.py](file:///d:/Code/indian-trading-agent/backend/verdict_calibration.py) to properly handle NSE market holidays and weekends, resolving Monday lock-in bias.
-*   **Real-Time Simulation Mechanics**: Updated the backtest replay to process gap detection using intraday extremes (`current_low`/`current_high`) and fetched active weights dynamically per market regime. Resolved a calendar-date skip loop bug by advancing dates uniformly.
+*   **Real-Time Simulation Mechanics**: Updated the backtest replay to process gap detection using intraday extremes (`current_low`/`current_high`) and use static `DEFAULT_WEIGHTS` (since weight overrides are retired). Resolved a calendar-date skip loop bug by advancing dates uniformly.
 *   **Trade Expirations**: Modified paper/shadow trade auto-expirations to count trading days elapsed (`trading_days_elapsed` from [market_calendar.py](file:///d:/Code/indian-trading-agent/tradingagents/utils/market_calendar.py)) rather than calendar days to prevent early expirations.
 *   **Drawdown Calculations**: Rewrote `get_portfolio_drawdown()` to compound equity based on actual position size percentages, incorporate mark-to-market unrealized P&L (updating quotes dynamically via `yfinance` if cache is older than 15 minutes), handle stop-loss hits from the database, sort same-day entry-exits correctly, and ignore NULL P&L records.
 *   **Execution Safeguards**: Fixed parameter overwriting bug in `open_paper_trade()` to preserve user-specified stop-loss and risk/reward parameters, and ensured neutral backtest scores (-2.0 to 2.0) emit `"HOLD"` signals instead of silent nulls.
@@ -79,7 +79,7 @@ To prevent repeating the same bugs and architectural mistakes, here is the list 
 *   **Shadow Trade Direction-Aware P&L**: Updated `refresh_shadow_prices()` in `backend/shadow_trades.py` to fetch the `signal` direction from the database and apply a direction multiplier when calculating horizon P&Ls, preventing silent label inversion during signal model retraining.
 
 ### 5. UI, API & Daily Verdict Architecture
-*   **API Deprecations**: Retired legacy manual weight overrides and weight-tuning API endpoints (`/apply`, `/reset`) by raising HTTP 400 Bad Request.
+*   **API Deprecations**: Retired legacy manual weight overrides and weight-tuning API endpoints (`/apply`, `/reset`) by raising HTTP 400 Bad Request, and fully deprecated/removed overrides logic in recommender scoring and backtests (Option A).
 *   **Fail-Safe Verdicts**: Restructured [daily_verdict.py](file:///d:/Code/indian-trading-agent/backend/daily_verdict.py) to force red stand-down verdicts when the underlying recommender engine throws exceptions, and bypassed stock-level filters during scan passes to prevent double-penalizing risk adjustments. Handled recommender failures as a clean decision logic override rather than a post-decision override to prevent caution count desynchronization and double-counting issues.
 *   **Frontend Dashboard Pages**:
     *   **Simulation & Performance**: Rendered `"HOLD"` signals (colored gray, excluded from win rate calculations) on the simulation page, and added live market `<RegimeBadge />` updates and model coefficient tables on the Signal Performance page.

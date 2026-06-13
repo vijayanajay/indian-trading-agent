@@ -155,26 +155,8 @@ def test_simulation_gap_down_unfilled(mock_ticker, mock_rsi, mock_get_regime):
 
 @patch("backend.simulation._compute_rsi", return_value=50.0)
 @patch("backend.simulation.yf.Ticker")
-@patch("backend.signal_performance.get_active_weights_for_regime")
-def test_simulation_regime_weights(mock_get_weights, mock_ticker, mock_rsi):
-    # Setup custom weights where breakout is extremely valued
-    custom_weights = {
-        "gap_up_filled": 1.5,
-        "gap_up_open": -0.5,
-        "gap_down_filled": 1.5,
-        "gap_down_open": -0.5,
-        "volume_bullish": 2.0,
-        "volume_bearish": -2.0,
-        "breakout_vol_confirmed": 10.0,  # normally 3.0
-        "breakout_weak": 1.0,
-        "near_support": 2.0,
-        "near_resistance": -1.5,
-        "breakdown_support": -2.5,
-        "rsi_oversold": 1.5,
-        "rsi_overbought": -1.0,
-    }
-    mock_get_weights.return_value = custom_weights
-    
+def test_simulation_regime_weights(mock_ticker, mock_rsi):
+    # Verify that scoring uses static DEFAULT_WEIGHTS under different regimes
     target_date = date(2026, 6, 8)
     dates = pd.date_range(end="2026-06-18", periods=70)
     volumes = [1000] * 70
@@ -196,10 +178,9 @@ def test_simulation_regime_weights(mock_get_weights, mock_ticker, mock_rsi):
     
     result = _analyze_stock_at_date("TEST", target_date, regime="HIGH_VOL")
     
-    mock_get_weights.assert_called_once_with("HIGH_VOL")
     assert result is not None
-    # Expected score: 10.0 (custom breakout_vol_confirmed) + 2.0 (volume_bullish) = 12.0
-    assert result["score"] == 12.0
+    # Expected score: 3.0 (default breakout_vol_confirmed) + 2.0 (volume_bullish) = 5.0
+    assert result["score"] == 5.0
     assert result["signal"] == "STRONG BUY"
 
 

@@ -94,13 +94,8 @@ export function TodayPicks({ universe = "nifty100" }: { universe?: string }) {
                 {data?.active_regime && (
                   <>
                     {" · "}
-                    <span title={data.regime_weight_overrides_active > 0
-                      ? `Recommender is using ${data.regime_weight_overrides_active} ${data.active_regime}-specific weight override(s)`
-                      : `${data.active_regime} regime active. Visit Signal Performance to apply regime-specific weight overrides.`}>
+                    <span title={`${data.active_regime} regime active. Visit Signal Performance to view diagnostics.`}>
                       <span className="font-medium">{data.active_regime}</span>
-                      {data.regime_weight_overrides_active > 0 && (
-                        <span className="text-purple-600 ml-1">⚡{data.regime_weight_overrides_active}</span>
-                      )}
                     </span>
                   </>
                 )}

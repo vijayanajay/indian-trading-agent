@@ -159,7 +159,7 @@ export default function SignalsPage() {
             Signal Performance
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Real win rate of each recommender signal — auto-tune the engine from your trade outcomes.
+            Real win rate of each recommender signal — track outcomes and view performance diagnostics.
           </p>
         </div>
         <div className="flex items-center gap-2">

@@ -410,13 +410,10 @@ def _analyze_stock_at_date(ticker: str, target_date: date, regime: str | None = 
             except Exception:
                 regime = None
 
-        # Fetch active tuned/regime-specific weights
-        try:
-            from backend.signal_performance import get_active_weights_for_regime
-            W = get_active_weights_for_regime(regime)
-        except Exception:
-            from backend.recommender import DEFAULT_WEIGHTS
-            W = DEFAULT_WEIGHTS
+        # Use static DEFAULT_WEIGHTS (overrides are retired)
+        from backend.recommender import DEFAULT_WEIGHTS
+        W = DEFAULT_WEIGHTS
+
 
         symbol = f"{ticker}.NS"
         t = yf.Ticker(symbol)

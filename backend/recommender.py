@@ -39,46 +39,26 @@ DEFAULT_WEIGHTS = {
 }
 
 
-# Live-tuned overrides loaded from the settings table at the start of each
-# `recommend()` call. Defaults to a copy of DEFAULT_WEIGHTS until the
-# signal_performance "Apply" endpoint persists overrides.
-_ACTIVE_WEIGHTS: dict[str, float] = dict(DEFAULT_WEIGHTS)
+# Active weights dictionary (now static; overrides are retired).
+_ACTIVE_WEIGHTS: dict[str, float] = DEFAULT_WEIGHTS
+
+# Tracks the current regime to surface in recommendation responses
+_ACTIVE_REGIME: str | None = None
 
 
 def _refresh_active_weights() -> None:
-    """Pull tuned overrides (if any) from settings into _ACTIVE_WEIGHTS.
+    """Detect the current regime for display purposes.
 
-    Three-layer merge:
-        1. DEFAULT_WEIGHTS (hardcoded baseline)
-        2. recommender_tuned_weights (Tier 1.1: global signal tuning)
-        3. recommender_regime_weights[current_regime] (Tier 4.1: conditional)
-
-    Layer 3 only applies if the user has persisted regime overrides AND the
-    classifier returns a known regime. Falls back gracefully if either is missing.
-
-    Imported lazily to avoid circular import (signal_performance imports
-    DEFAULT_WEIGHTS from this module).
+    Manual and regime-specific weight overrides are retired.
     """
-    global _ACTIVE_WEIGHTS, _ACTIVE_REGIME
+    global _ACTIVE_REGIME
     try:
-        from backend.signal_performance import get_active_weights_for_regime
-        # Detect current regime (best-effort)
-        current_regime = None
-        try:
-            from backend.market_regime import get_current_regime
-            current_regime = (get_current_regime() or {}).get("regime")
-        except Exception:
-            pass
+        from backend.market_regime import get_current_regime
+        current_regime = (get_current_regime() or {}).get("regime")
         _ACTIVE_REGIME = current_regime
-        _ACTIVE_WEIGHTS = get_active_weights_for_regime(current_regime)
     except Exception:
-        _ACTIVE_WEIGHTS = dict(DEFAULT_WEIGHTS)
         _ACTIVE_REGIME = None
 
-
-# Tracks the regime that produced the currently-loaded weights, surfaced in
-# the recommendation response so the UI can display "weights tuned for HIGH_VOL".
-_ACTIVE_REGIME: str | None = None
 
 
 def _compute_rsi(closes, period=14):

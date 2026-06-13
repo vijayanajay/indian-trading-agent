@@ -368,10 +368,6 @@ def compute_signal_performance(window_days: int = 90) -> dict:
     }
 
 
-def _suggest_weight(current: float, wilson_lower: float) -> float:
-    return current
-
-
 def _key_to_label(key: str) -> str:
     """Best-effort reverse lookup for display when no trades hit this signal yet."""
     for label, k in SIGNAL_TYPE_TO_KEY.items():
@@ -383,22 +379,22 @@ def _key_to_label(key: str) -> str:
 # --- Tuned weight persistence (RETIRED) ---
 
 def get_tuned_weights() -> dict[str, float]:
-    """Return empty dict (weight overrides retired)."""
+    """Retired in favor of L1-regularized logistic regression model."""
     return {}
 
 
 def apply_tuned_weights(window_days: int = 90, only_keys: Optional[list[str]] = None) -> dict:
-    """No-op. Weight overrides retired."""
+    """Retired in favor of L1-regularized logistic regression model."""
     return {"applied": [], "active_overrides": {}}
 
 
 def reset_tuned_weights() -> None:
-    """Clear any historical overrides."""
-    set_setting(TUNED_WEIGHTS_KEY, None)
+    """Retired in favor of L1-regularized logistic regression model."""
+    pass
 
 
 def get_active_weights() -> dict[str, float]:
-    """Return default weights."""
+    """Retired in favor of L1-regularized logistic regression model."""
     from backend.recommender import DEFAULT_WEIGHTS
     return dict(DEFAULT_WEIGHTS)
 
@@ -410,7 +406,7 @@ REGIME_OVERRIDE_THRESHOLD = 0.10
 
 
 def compute_regime_conditional_weights(window_days: int = 180) -> dict:
-    """Regime-specific overrides retired."""
+    """Retired in favor of L1-regularized logistic regression model."""
     return {
         "lookback_days": window_days,
         "min_sample_per_regime": MIN_SAMPLE_PER_REGIME,
@@ -420,19 +416,23 @@ def compute_regime_conditional_weights(window_days: int = 180) -> dict:
 
 
 def get_regime_weights() -> dict[str, dict[str, float]]:
+    """Retired in favor of L1-regularized logistic regression model."""
     return {}
 
 
 def apply_regime_weights(window_days: int = 180,
                           only_regimes: Optional[list[str]] = None) -> dict:
+    """Retired in favor of L1-regularized logistic regression model."""
     return {"applied": {}, "active_regime_weights": {}}
 
 
 def reset_regime_weights() -> None:
-    set_setting(REGIME_WEIGHTS_KEY, None)
+    """Retired in favor of L1-regularized logistic regression model."""
+    pass
 
 
 def get_active_weights_for_regime(regime: Optional[str]) -> dict[str, float]:
-    """Return default weights."""
+    """Retired in favor of L1-regularized logistic regression model."""
     from backend.recommender import DEFAULT_WEIGHTS
     return dict(DEFAULT_WEIGHTS)
+

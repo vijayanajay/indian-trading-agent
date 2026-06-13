@@ -39,12 +39,12 @@ This project is built on top of the excellent [TradingAgents](https://github.com
 - Paper Trading Simulation (multi-horizon P&L tracking, no API cost)
 - Historical Recommender Backtest (replay engine on past 60 days)
 - Learning Insights (pattern analysis on YOUR trades, no ML)
-- **Signal Performance Tracker** — measures real win rate of each recommender signal from closed trades and auto-tunes the scoring weights (closes the feedback loop)
+- **Signal Performance Tracker** — measures real win rate of each recommender signal from closed trades to diagnose performance (closes the feedback loop)
 - **Verdict Calibration** — daily snapshot of the headline verdict + Nifty close, then 1/3/5-day forward returns measure whether GREEN/YELLOW/RED actually predict market direction
 - **Market Regime Classifier** — labels every trading day BULL / BEAR / SIDEWAYS / HIGH_VOL, tags every paper trade with the regime at entry, and reveals which signals are regime-dependent (e.g., "Near Support" might win 70% in BULL but 35% in BEAR)
 - **Confidence Calibration (Brier score)** — measures whether the recommender's stated `success_probability` is honest. Reliability diagram bins predictions by probability and compares to actual win rate. Flags overconfidence/underconfidence.
 - **Shadow Trades** — every STRONG BUY (and HIGH-confidence BUY) auto-recorded as a virtual trade regardless of whether the user clicked Track. After 1/3/5/10 days, actual P&L backfills. Surfaces false negatives — winners the user wrongly skipped — and tells you whether your filtering helps or hurts.
-- **Conditional Regime Weights** — recommender automatically picks the right weight layer based on today's regime. Three-layer merge: DEFAULT → base tuned → regime-specific overrides. So a signal that wins 75% in BULL but 25% in BEAR can have different weights applied automatically depending on which regime is active.
+- **Automated Probabilistic Modeling** — recommendation outcomes are fed into a trained L1-regularized logistic regression model that automatically fits coefficients for 17 signals, 4 regimes, and interaction terms to output calibrated success probabilities.
 - **Memory Pruning + Decay (BM25)** — agent BM25 memories now carry per-entry metadata (created_at, last_accessed, hit_count). Every retrieval applies an age-based decay multiplier so old lessons fade out automatically. Manual pruning (by age, hit count, or decay floor) physically removes stale entries. Lessons learned in a 2024 bull market no longer pollute 2026 decisions.
 - Seasonal Backtest (no AI cost)
 - Position Size Calculator
@@ -308,7 +308,7 @@ This is the **"what do I actually do today?"** answer — eliminates daily decis
 
 The system improves itself from real trade outcomes. Two pages drive this:
 
-#### 📈 Signal Performance — auto-tunes the recommender
+#### 📈 Signal Performance — diagnoses recommender signals
 
 Every paper trade stores which signals fired (`triggered_signals` JSON). After 5-day P&L is known, each signal is credited or blamed for the outcome (multi-attribution — every signal in a trade gets one observation).
 
@@ -320,12 +320,9 @@ Aggregated stats per signal:
 | `win_rate` | Raw fraction that won |
 | `wilson_lower_80` | Honest lower bound at 80% confidence — handles small samples |
 | `avg_return_5d_pct` | Mean realized return when the signal fired |
-| `suggested_weight` | New weight derived from Wilson lower bound |
-| `verdict` | `TUNE_UP` / `TUNE_DOWN` / `KEEP` / `INSUFFICIENT_DATA` |
+| `base_weight` | Default weight assigned to the signal in scoring |
 
-Suggestion formula preserves direction (a bullish signal stays bullish) and scales magnitude by `(wilson - 0.30) / 0.20`, capped at 2.5×. Minimum 10 trades per signal before any change is suggested — below that, data is too noisy.
-
-Click **Apply Suggested Weights** to persist overrides into the `settings` table. The recommender's `_refresh_active_weights()` reloads them at the start of every `recommend()` call. **The engine literally rewrites itself from your trade outcomes.**
+The manual and regime-specific weight tuning override endpoints have been retired. The recommendation engine now uses these statistics as informational diagnostics, and the system is powered by an automated **L1-regularized logistic regression probabilistic model** to predict success probabilities and drive position sizing.
 
 #### 🎯 Verdict Calibration — grades the daily verdict
 
@@ -383,40 +380,11 @@ How to use it day-to-day:
 3. For each ⚡ signal you care about, note which regime it works in.
 4. Manually skip those signals when the wrong regime is active.
 
-**Conditional regime weights are now live** (Tier 4.1) — when you click *Apply All Regime Suggestions* on `/signals`, the recommender automatically picks per-regime overrides at runtime based on today's regime. See the next subsection.
+**Regime-conditional diagnostics are now live** (Tier 4.1) — the recommender displays per-regime diagnostics automatically on `/signals` to reveal which signals are regime-dependent. 
 
-#### 🎚️ Conditional Regime Weights — three-layer merge
+#### 🎚️ Automated Regime Calibration
 
-The recommender now resolves weights at runtime through three layers:
-
-```
-1. DEFAULT_WEIGHTS              ← hardcoded baseline
-2. recommender_tuned_weights    ← Tier 1.1: global signal tuning
-3. recommender_regime_weights[current_regime]  ← Tier 4.1: conditional
-```
-
-Each layer can override the previous one. Today's regime is detected automatically (BULL / BEAR / SIDEWAYS / HIGH_VOL) and the matching layer-3 dict is applied.
-
-**When are regime overrides suggested?** Conservatively — the system only proposes a regime-specific weight when ALL of:
-- `n ≥ 5` trades observed in that regime for the signal
-- Wilson lower bound differs from 50% by more than 10%
-- Suggested weight differs from the base by more than 0.25
-
-This prevents overreaction from small samples while still surfacing genuine regime-conditional behavior.
-
-**Example flow:**
-
-```
-Today: HIGH_VOL regime
-  Base tuned weight: rsi_overbought = -1.0
-  HIGH_VOL data: 5 trades, 40% win rate (Wilson 18%)
-  → Suggested override: -1.0 → 0.0 (signal is unreliable in HIGH_VOL)
-  → After Apply: recommender ignores rsi_overbought today only
-
-Tomorrow: regime shifts to BULL
-  → recommender automatically reverts to base weight (-1.0)
-  → BULL-specific overrides (if any exist) apply instead
-```
+The backend uses a 28-dimensional logistic model featuring interaction terms between signals and regimes (e.g., how "Near Support" behaves in "HIGH_VOL" vs "BULL"). The model automatically learns these coefficients and outputs calibrated success probabilities that dynamically factor in the active regime at runtime. Manual regime weight overrides are deprecated and retired.
 
 The Dashboard's Top Picks header shows the active regime + override count: `NIFTY100 · HIGH_VOL ⚡3` means 3 regime-specific overrides are active right now. Hover over the badge for details.
 
@@ -615,12 +583,12 @@ Switch providers (OpenAI GPT-5.4-mini, Gemini Flash) for even cheaper analyses (
 - [x] **FII/DII daily flow tracker** (live NSE data, integrated as recommendation filter)
 - [x] **Earnings + Economic Calendar** (RBI/Budget/Fed/expiry/earnings filters)
 - [x] **Sector Concentration Checker** (max 3 positions, 30% capital per sector)
-- [x] **Signal Performance Tracker** (auto-tunes recommender weights from real outcomes)
+- [x] **Signal Performance Tracker** (diagnoses signal performance metrics from closed trades)
 - [x] **Verdict Calibration** (grades daily verdict against actual Nifty moves at 1/3/5d horizons)
 - [x] **Market Regime Classifier** (BULL/BEAR/SIDEWAYS/HIGH_VOL tagging on every trade + conditional signal stats)
 - [x] **Confidence Calibration** (Brier score + reliability diagram for the recommender's success_probability)
 - [x] **Shadow Trades** (counterfactual auto-tracking of every STRONG BUY regardless of user action)
-- [x] **Conditional Regime Weights** (recommender auto-picks per-regime weight layer at runtime)
+- [x] **Automated Regime Calibration** (L1 logistic regression incorporates regimes to forecast probabilities)
 - [x] **Memory Pruning + Decay** (BM25 memories with age-based decay multiplier + admin UI)
 - [x] Strategy performance tracker
 - [x] Paper trading simulation (multi-horizon P&L tracking)
