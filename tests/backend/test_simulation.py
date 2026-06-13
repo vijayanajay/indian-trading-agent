@@ -90,7 +90,7 @@ def test_simulation_gap_down_filled(mock_ticker, mock_rsi, mock_get_regime):
     dates = pd.date_range(end="2026-06-18", periods=70)
     volumes = [1000] * 70
     
-    # Gap Down (Filled): gap_pct = -3%, high = 100.5 >= prev_close (100) -> should add -1.5
+    # Gap Down (Filled): gap_pct = -3%, high = 100.5 >= prev_close (100) -> should add 1.5
     target_idx = 59
     opens = [100.0] * 70
     highs = [101.0] * 70
@@ -112,9 +112,9 @@ def test_simulation_gap_down_filled(mock_ticker, mock_rsi, mock_get_regime):
     
     result = _analyze_stock_at_date("TEST", target_date)
     assert result is not None
-    # Expected score: -1.5 (gap down filled) + -2.0 (volume spike bearish) = -3.5 (SELL)
-    assert result["score"] == -3.5
-    assert result["signal"] == "SELL"
+    # Expected score: 1.5 (gap down filled) + -2.0 (volume spike bearish) = -0.5 (HOLD)
+    assert result["score"] == -0.5
+    assert result["signal"] == "HOLD"
 
 
 @patch("backend.market_regime.get_cached_regime", return_value={"regime": None})

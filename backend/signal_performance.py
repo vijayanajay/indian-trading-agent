@@ -32,7 +32,7 @@ from backend.db import get_db, get_setting, set_setting
 SIGNAL_TYPE_TO_KEY = {
     "Gap Up (Filled)": "gap_up_filled",
     "Gap Up (Unfilled)": "gap_up_open",
-    "Gap Down (Filled - Fade)": "gap_down_filled",
+    "Gap Down (Filled)": "gap_down_filled",
     "Gap Down (Unfilled)": "gap_down_open",
     "Volume Spike (Bullish)": "volume_bullish",
     "Volume Spike (Bearish)": "volume_bearish",
