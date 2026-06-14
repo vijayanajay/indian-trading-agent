@@ -731,3 +731,24 @@ If the feature causes issues:
 3. Or: delete `correlation_cache` table and revert the file changes.
 
 No database migrations needed beyond the single table creation (idempotent `CREATE TABLE IF NOT EXISTS`).
+
+---
+
+## 11. Implementation Verification Checklist (Added on 2026-06-14 by Kailash Nadh)
+
+### Backend Services
+- [x] **Schema & Cache (SQLite)**: Table `correlation_cache` correctly defined and initialized in `backend/db.py`.
+- [x] **Database Helpers**: `save_correlation`, `get_correlation`, `get_correlations_for_ticker`, and `prune_stale_correlations` appended to `backend/db.py`.
+- [x] **Correlation Engine**: Daily returns fetching, Pandas Datetime date alignment, and parallel candidate fetches via ThreadPoolExecutor implemented in `backend/concentration.py`.
+- [x] **Recommender Integration**: Score penalty (-0.5 to -1.5) applied for highly correlated candidates in `backend/recommender.py` and confidence/assessment re-computed honesty.
+- [x] **Fast/Offline Pathways**: `daily_verdict.py` and daily verdict scans bypass network fetches correctly (`fetch_if_missing=False` or `apply_correlation_check=False`).
+- [x] **API Endpoints**: `backend/routers/concentration.py` exposes `/api/concentration/correlation/{ticker}` and `/api/concentration/summary`, and router is registered in `backend/app.py`.
+- [x] **Cron Warm-Up**: NIFTY 50 pre-computation task implemented and scheduled in `backend/cron.py` to prevent real-time latency hits on recommendation scans.
+- [x] **Test Coverage**: Basic test coverage for caching, returns alignment, clustering, and score adjustments added to `tests/backend/test_concentration.py`.
+
+### Frontend Integration (Optional but Recommended)
+- [x] **Dashboard Widget Update**: `ConcentrationWidget.tsx` displays `correlation_risk` warnings and `correlation_reason` alerts when risk level is not LOW or NONE.
+- [x] **Top Picks & Recommendations Badges**: `TodayPicks.tsx` and `recommendations/page.tsx` render the `Cluster Risk` badge when `correlation_breach` is true.
+
+### Summary Verdict
+**Status:** Both backend services and frontend user interface elements are fully complete, robust, and correctly implemented.

@@ -103,6 +103,20 @@ export function ConcentrationWidget() {
           ))}
         </div>
 
+        {summary.correlation_risk && summary.correlation_risk !== "LOW" && summary.correlation_risk !== "NONE" && (
+          <div className={`mt-3 p-2.5 rounded-lg border flex items-start gap-2 text-xs ${
+            summary.correlation_risk === "HIGH" 
+              ? "bg-red-50 border-red-200 text-red-800" 
+              : "bg-yellow-50 border-yellow-200 text-yellow-800"
+          }`}>
+            <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+            <div>
+              <span className="font-semibold">⚠️ Correlation Risk ({summary.correlation_risk}):</span>{" "}
+              {summary.correlation_reason}
+            </div>
+          </div>
+        )}
+
         {expanded && (
           <div className="mt-3 pt-3 border-t border-current/10 space-y-3">
             <div className="space-y-2">

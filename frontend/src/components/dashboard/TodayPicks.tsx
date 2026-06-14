@@ -157,6 +157,11 @@ export function TodayPicks({ universe = "nifty100" }: { universe?: string }) {
                           <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300 text-xs">
                             {pick.direction}
                           </Badge>
+                          {pick.correlation_breach && (
+                            <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-300 text-xs cursor-help" title={pick.correlation_warning}>
+                              🔗 Cluster Risk
+                            </Badge>
+                          )}
                           <HonestAssessmentBadge assessment={pick.honest_assessment} />
                         </div>
                         <p className="text-xs text-muted-foreground truncate">

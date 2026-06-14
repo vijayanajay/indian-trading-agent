@@ -113,6 +113,11 @@ function RecommendationCard({ rec }: { rec: any }) {
                   {rec.confidence} confidence
                 </Badge>
                 <HonestAssessmentBadge assessment={rec.honest_assessment} />
+                {rec.correlation_breach && (
+                  <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-300 text-xs cursor-help" title={rec.correlation_warning}>
+                    🔗 Cluster Risk
+                  </Badge>
+                )}
                 <Badge variant="outline" className="text-xs">
                   Score: {rec.score >= 0 ? "+" : ""}{rec.score}
                 </Badge>
