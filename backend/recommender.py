@@ -281,6 +281,10 @@ def _recompute_assessment_and_trade_plan(result: dict, new_score: float) -> None
     result["honest_assessment"] = assessment
     result["suggested_position_size_pct"] = assessment.get("suggested_position_size_pct")
 
+    # Finalize trade plan based on final direction (in case direction changed during second pass)
+    _update_trade_plan(result)
+
+
 
 def _analyze_stock(ticker: str, allowed_strategies: dict = None) -> dict | None:
     """Analyze a single stock and return signals + score."""
