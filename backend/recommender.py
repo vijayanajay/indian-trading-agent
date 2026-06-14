@@ -329,7 +329,7 @@ def _analyze_stock(ticker: str, allowed_strategies: dict = None) -> dict | None:
                         signals.append({"type": "Gap Up (Filled)", "direction": "BULLISH", "value": f"+{gap_pct:.2f}%", "weight": _ACTIVE_WEIGHTS["gap_up_filled"]})
                     else:
                         score += _ACTIVE_WEIGHTS["gap_up_open"]
-                        signals.append({"type": "Gap Up (Unfilled)", "direction": "FADE", "value": f"+{gap_pct:.2f}%", "weight": _ACTIVE_WEIGHTS["gap_up_open"]})
+                        signals.append({"type": "Gap Up (Unfilled)", "direction": "BEARISH", "value": f"+{gap_pct:.2f}%", "weight": _ACTIVE_WEIGHTS["gap_up_open"]})
                 else:
                     # Gap down
                     if current_high >= prev_close:
@@ -338,7 +338,7 @@ def _analyze_stock(ticker: str, allowed_strategies: dict = None) -> dict | None:
                         signals.append({"type": "Gap Down (Filled)", "direction": "BULLISH", "value": f"{gap_pct:.2f}%", "weight": _ACTIVE_WEIGHTS["gap_down_filled"]})
                     else:
                         score += _ACTIVE_WEIGHTS["gap_down_open"]
-                        signals.append({"type": "Gap Down (Unfilled)", "direction": "FADE", "value": f"{gap_pct:.2f}%", "weight": _ACTIVE_WEIGHTS["gap_down_open"]})
+                        signals.append({"type": "Gap Down (Unfilled)", "direction": "BEARISH", "value": f"{gap_pct:.2f}%", "weight": _ACTIVE_WEIGHTS["gap_down_open"]})
 
         # === VOLUME SPIKE ===
         if allowed_strategies.get("volume", True) and avg_volume > 0:
