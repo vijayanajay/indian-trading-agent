@@ -19,9 +19,9 @@ logger = logging.getLogger("recommender")
 
 # Historical win rates (baseline — will be overridden by live performance data if available)
 DEFAULT_WEIGHTS = {
-    "gap_up_filled": 1.5,      # Gap up that filled = strong buying
+    "gap_up_filled": -0.5,     # Gap up that filled = bearish fade
     "gap_down_filled": 1.5,    # Gap down that filled = bullish recovery
-    "gap_up_open": -0.5,       # Unfilled gap up = fade signal (historically 35% win rate)
+    "gap_up_open": 1.5,        # Unfilled gap up = bullish continuation
     "gap_down_open": -0.5,     # Unfilled gap down = fade signal
     "volume_bullish": 2.0,     # Volume spike with green candle
     "volume_bearish": -2.0,    # Volume spike with red candle
@@ -330,10 +330,10 @@ def _analyze_stock(ticker: str, allowed_strategies: dict = None) -> dict | None:
                     # Gap up
                     if current_low <= prev_close:
                         score += _ACTIVE_WEIGHTS["gap_up_filled"]
-                        signals.append({"type": "Gap Up (Filled)", "direction": "BULLISH", "value": f"+{gap_pct:.2f}%", "weight": _ACTIVE_WEIGHTS["gap_up_filled"]})
+                        signals.append({"type": "Gap Up (Filled)", "direction": "BEARISH", "value": f"+{gap_pct:.2f}%", "weight": _ACTIVE_WEIGHTS["gap_up_filled"]})
                     else:
                         score += _ACTIVE_WEIGHTS["gap_up_open"]
-                        signals.append({"type": "Gap Up (Unfilled)", "direction": "BEARISH", "value": f"+{gap_pct:.2f}%", "weight": _ACTIVE_WEIGHTS["gap_up_open"]})
+                        signals.append({"type": "Gap Up (Unfilled)", "direction": "BULLISH", "value": f"+{gap_pct:.2f}%", "weight": _ACTIVE_WEIGHTS["gap_up_open"]})
                 else:
                     # Gap down
                     if current_high >= prev_close:

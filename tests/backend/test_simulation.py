@@ -16,7 +16,7 @@ def test_simulation_gap_up_filled(mock_ticker, mock_rsi, mock_get_regime):
     dates = pd.date_range(end="2026-06-18", periods=70)
     volumes = [1000] * 70
     
-    # Gap Up (Filled): gap_pct = 3%, low = 99 <= prev_close (100) -> should add 1.5
+    # Gap Up (Filled): gap_pct = 3%, low = 99 <= prev_close (100) -> should add -0.5
     # Target date index is 59 (60th element, matching target_date)
     target_idx = 59
     opens = [100.0] * 70
@@ -28,42 +28,6 @@ def test_simulation_gap_up_filled(mock_ticker, mock_rsi, mock_get_regime):
     opens[target_idx] = 103.0
     highs[target_idx] = 101.0
     lows[target_idx] = 99.0
-    closes[target_idx] = 101.0
-    
-    # Volume spike: vol_ratio >= 2.0 and price_change > 0.5 -> score += 2.0
-    volumes[target_idx] = 2000
-    
-    df = pd.DataFrame({
-        "Open": opens, "High": highs, "Low": lows, "Close": closes, "Volume": volumes
-    }, index=dates)
-    mock_ticker.return_value.history.return_value = df
-    
-    result = _analyze_stock_at_date("TEST", target_date)
-    assert result is not None
-    # Expected score: 1.5 (gap filled) + 2.0 (volume spike) = 3.5 (BUY)
-    assert result["score"] == 3.5
-    assert result["signal"] == "BUY"
-
-
-@patch("backend.market_regime.get_cached_regime", return_value={"regime": None})
-@patch("backend.simulation._compute_rsi", return_value=50.0)
-@patch("backend.simulation.yf.Ticker")
-def test_simulation_gap_up_unfilled(mock_ticker, mock_rsi, mock_get_regime):
-    target_date = date(2026, 6, 8)
-    
-    dates = pd.date_range(end="2026-06-18", periods=70)
-    volumes = [1000] * 70
-    
-    # Gap Up (Unfilled): gap_pct = 3%, low = 100.5 > prev_close (100) -> should add -0.5
-    target_idx = 59
-    opens = [100.0] * 70
-    highs = [101.0] * 70
-    lows = [99.0] * 70
-    closes = [100.0] * 70
-    
-    opens[target_idx] = 103.0
-    highs[target_idx] = 101.0
-    lows[target_idx] = 100.5
     closes[target_idx] = 99.0
     
     # Volume spike: vol_ratio >= 2.0 and price_change < -0.5 -> score += -2.0
@@ -76,9 +40,45 @@ def test_simulation_gap_up_unfilled(mock_ticker, mock_rsi, mock_get_regime):
     
     result = _analyze_stock_at_date("TEST", target_date)
     assert result is not None
-    # Expected score: -0.5 (gap unfilled) + -2.0 (volume spike bearish) = -2.5 (SELL)
+    # Expected score: -0.5 (gap filled) + -2.0 (volume spike bearish) = -2.5 (SELL)
     assert result["score"] == -2.5
     assert result["signal"] == "SELL"
+
+
+@patch("backend.market_regime.get_cached_regime", return_value={"regime": None})
+@patch("backend.simulation._compute_rsi", return_value=50.0)
+@patch("backend.simulation.yf.Ticker")
+def test_simulation_gap_up_unfilled(mock_ticker, mock_rsi, mock_get_regime):
+    target_date = date(2026, 6, 8)
+    
+    dates = pd.date_range(end="2026-06-18", periods=70)
+    volumes = [1000] * 70
+    
+    # Gap Up (Unfilled): gap_pct = 3%, low = 100.5 > prev_close (100) -> should add 1.5
+    target_idx = 59
+    opens = [100.0] * 70
+    highs = [101.0] * 70
+    lows = [99.0] * 70
+    closes = [100.0] * 70
+    
+    opens[target_idx] = 103.0
+    highs[target_idx] = 101.0
+    lows[target_idx] = 100.5
+    closes[target_idx] = 101.0
+    
+    # Volume spike: vol_ratio >= 2.0 and price_change > 0.5 -> score += 2.0
+    volumes[target_idx] = 2000
+    
+    df = pd.DataFrame({
+        "Open": opens, "High": highs, "Low": lows, "Close": closes, "Volume": volumes
+    }, index=dates)
+    mock_ticker.return_value.history.return_value = df
+    
+    result = _analyze_stock_at_date("TEST", target_date)
+    assert result is not None
+    # Expected score: 1.5 (gap unfilled) + 2.0 (volume spike bullish) = 3.5 (BUY)
+    assert result["score"] == 3.5
+    assert result["signal"] == "BUY"
 
 
 @patch("backend.market_regime.get_cached_regime", return_value={"regime": None})

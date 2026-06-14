@@ -99,7 +99,7 @@ def test_gap_signals(mock_ticker):
     assert result is not None
     gap_signals = [s for s in result["signals"] if "Gap Up (Filled)" in s["type"]]
     assert len(gap_signals) == 1
-    assert gap_signals[0]["direction"] == "BULLISH"
+    assert gap_signals[0]["direction"] == "BEARISH"
 
     # 2. Test Gap Up (Unfilled - Fade): gap_pct >= 2.0, low > prev_close, close < open
     # prev_close = 100, open = 103 (gap 3%), low = 101 (unfilled), close = 102 (close < open)
@@ -117,7 +117,7 @@ def test_gap_signals(mock_ticker):
     assert result is not None
     gap_signals = [s for s in result["signals"] if "Gap Up (Unfilled)" in s["type"]]
     assert len(gap_signals) == 1
-    assert gap_signals[0]["direction"] == "BEARISH"
+    assert gap_signals[0]["direction"] == "BULLISH"
 
     # 3. Test Gap Up (Unfilled - Green Candle - Fade): gap_pct >= 2.0, low > prev_close, close >= open
     # prev_close = 100, open = 103 (gap 3%), low = 101 (unfilled), close = 104 (close >= open)
@@ -135,7 +135,7 @@ def test_gap_signals(mock_ticker):
     assert result is not None
     gap_signals = [s for s in result["signals"] if "Gap Up (Unfilled)" in s["type"]]
     assert len(gap_signals) == 1
-    assert gap_signals[0]["direction"] == "BEARISH"
+    assert gap_signals[0]["direction"] == "BULLISH"
 
     # 4. Test Gap Down (Filled): gap_pct <= -2.0, high >= prev_close
     # prev_close = 100, open = 97 (gap -3%), high = 100.5 (filled), close = 99
