@@ -464,9 +464,9 @@ def _analyze_stock_at_date(ticker: str, target_date: date, regime: str | None = 
         if len(highs) > 20:
             n_day_high = float(np.max(highs[-21:-1]))
             n_day_low = float(np.min(lows[-21:-1]))
-            if current_high > n_day_high:
+            if current_close > n_day_high:
                 score += W["breakout_vol_confirmed"] if vol_ratio >= 1.5 else W["breakout_weak"]
-            elif current_low < n_day_low:
+            elif current_close < n_day_low:
                 score += W["breakdown_support"]
         if vol_ratio >= 2.0:
             price_change = (current_close - prev_close) / prev_close * 100 if prev_close else 0

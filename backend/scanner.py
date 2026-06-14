@@ -159,7 +159,7 @@ def scan_breakouts(stocks_data: list[dict], lookback_days: int = 20) -> list[dic
         n_day_high = float(prev_highs.max())
 
         # Check if today broke above it
-        if d["current_high"] > n_day_high:
+        if d["current_close"] > n_day_high:
             avg_volume = hist["Volume"].iloc[-(lookback_days + 1):-1].mean()
             vol_ratio = d["current_volume"] / avg_volume if avg_volume > 0 else 1
 

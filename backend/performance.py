@@ -217,9 +217,9 @@ def measure_breakout_strategy(
         for i in range(breakout_window, len(hist) - max_hold):
             prev_highs = hist.iloc[i - breakout_window:i]["High"]
             n_day_high = float(prev_highs.max())
-            today_high = float(hist.iloc[i]["High"])
+            today_close = float(hist.iloc[i]["Close"])
 
-            if today_high <= n_day_high:
+            if today_close <= n_day_high:
                 continue
 
             # Optional volume confirmation
@@ -228,8 +228,6 @@ def measure_breakout_strategy(
                 current_volume = float(hist.iloc[i]["Volume"])
                 if avg_volume == 0 or current_volume / avg_volume < 1.5:
                     continue
-
-            today_close = float(hist.iloc[i]["Close"])
             breakout_pct = (today_close - n_day_high) / n_day_high * 100
             entry_price = today_close
 

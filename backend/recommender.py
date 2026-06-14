@@ -362,7 +362,7 @@ def _analyze_stock(ticker: str, allowed_strategies: dict = None) -> dict | None:
         if allowed_strategies.get("breakout", True):
             n_day_high = float(np.max(highs[-21:-1]))  # 20-day high excluding today
             n_day_low = float(np.min(lows[-21:-1]))
-            if current_high > n_day_high:
+            if current_close > n_day_high:
                 vol_ratio = current_volume / avg_volume if avg_volume > 0 else 1
                 breakout_pct = (current_close - n_day_high) / n_day_high * 100
                 if vol_ratio >= 1.5:
@@ -371,7 +371,7 @@ def _analyze_stock(ticker: str, allowed_strategies: dict = None) -> dict | None:
                 else:
                     score += _ACTIVE_WEIGHTS["breakout_weak"]
                     signals.append({"type": "Breakout (Weak Volume)", "direction": "BULLISH", "value": f"+{breakout_pct:.2f}% above 20d high", "weight": _ACTIVE_WEIGHTS["breakout_weak"]})
-            elif current_low < n_day_low:
+            elif current_close < n_day_low:
                 breakdown_pct = (current_close - n_day_low) / n_day_low * 100
                 score += _ACTIVE_WEIGHTS["breakdown_support"]
                 signals.append({"type": "Breakdown Below Support", "direction": "BEARISH", "value": f"{breakdown_pct:.2f}% below 20d low", "weight": _ACTIVE_WEIGHTS["breakdown_support"]})

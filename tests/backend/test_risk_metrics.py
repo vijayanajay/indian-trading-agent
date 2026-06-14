@@ -59,9 +59,9 @@ def test_recommender_filtering(mock_ticker):
     dates = pd.date_range(end="2026-06-07", periods=60)
     # Price rises steadily to trigger breakout
     closes = np.linspace(100, 150, 60)
-    highs = closes + 1
-    lows = closes - 1
-    opens = closes - 0.5
+    highs = closes + 0.1
+    lows = closes - 0.1
+    opens = closes - 0.05
     volumes = [1000] * 59 + [5000] # volume spike on last day
     
     df = pd.DataFrame({
