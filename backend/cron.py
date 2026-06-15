@@ -313,6 +313,115 @@ def precompute_correlations():
 
 
 
+def update_price_cache(tickers_list=None, force=False) -> dict:
+    """Batch download stock price history and cache them in the SQLite database."""
+    import yfinance as yf
+    import pandas as pd
+    from backend.scanner import UNIVERSES
+    
+    logger.info("Starting stock price cache update...")
+    
+    if not tickers_list:
+        # Combine all unique tickers from all universes
+        all_tickers = set()
+        for u_name, u_list in UNIVERSES.items():
+            for t in u_list:
+                all_tickers.add(t)
+        tickers_list = sorted(list(all_tickers))
+        
+    logger.info(f"Updating price cache for {len(tickers_list)} tickers.")
+    
+    # Chunk list into sizes of 50 to avoid URL errors / rate limits
+    chunk_size = 50
+    chunks = [tickers_list[i:i + chunk_size] for i in range(0, len(tickers_list), chunk_size)]
+    
+    success_count = 0
+    fail_count = 0
+    total_bars_saved = 0
+    
+    for idx, chunk in enumerate(chunks):
+        logger.info(f"Processing price cache chunk {idx+1}/{len(chunks)} ({len(chunk)} tickers)...")
+        symbols = [f"{t}.NS" for t in chunk]
+        
+        try:
+            # Fetch 6 months of data
+            df = yf.download(symbols, period="6mo", group_by="ticker", progress=False, threads=True)
+            
+            if df.empty:
+                logger.warning(f"Empty data received for chunk {idx+1}")
+                fail_count += len(chunk)
+                continue
+                
+            # Connect to database
+            with get_db() as conn:
+                if isinstance(df.columns, pd.MultiIndex):
+                    for symbol in symbols:
+                        ticker = symbol.replace(".NS", "")
+                        if symbol in df.columns.levels[0]:
+                            ticker_df = df[symbol].dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+                            
+                            rows_to_insert = []
+                            for date, row in ticker_df.iterrows():
+                                trade_date_str = date.strftime('%Y-%m-%d')
+                                rows_to_insert.append((
+                                    ticker,
+                                    trade_date_str,
+                                    float(row['Open']),
+                                    float(row['High']),
+                                    float(row['Low']),
+                                    float(row['Close']),
+                                    float(row['Volume'])
+                                ))
+                            
+                            if rows_to_insert:
+                                conn.executemany("""
+                                    INSERT OR REPLACE INTO stock_prices (ticker, trade_date, open, high, low, close, volume)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                                """, rows_to_insert)
+                                total_bars_saved += len(rows_to_insert)
+                                success_count += 1
+                            else:
+                                fail_count += 1
+                        else:
+                            fail_count += 1
+                else:
+                    for symbol in symbols:
+                        ticker = symbol.replace(".NS", "")
+                        ticker_df = df.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+                        
+                        rows_to_insert = []
+                        for date, row in ticker_df.iterrows():
+                            trade_date_str = date.strftime('%Y-%m-%d')
+                            rows_to_insert.append((
+                                ticker,
+                                trade_date_str,
+                                float(row['Open']),
+                                float(row['High']),
+                                float(row['Low']),
+                                float(row['Close']),
+                                float(row['Volume'])
+                            ))
+                        
+                        if rows_to_insert:
+                            conn.executemany("""
+                                INSERT OR REPLACE INTO stock_prices (ticker, trade_date, open, high, low, close, volume)
+                                VALUES (?, ?, ?, ?, ?, ?, ?)
+                            """, rows_to_insert)
+                            total_bars_saved += len(rows_to_insert)
+                            success_count += 1
+                            
+        except Exception as e:
+            logger.error(f"Failed to process chunk {idx+1}: {e}")
+            fail_count += len(chunk)
+            
+    logger.info(f"Stock price cache update completed: {success_count} succeeded, {fail_count} failed. {total_bars_saved} total price bars saved.")
+    return {
+        "success": success_count,
+        "failed": fail_count,
+        "bars_saved": total_bars_saved
+    }
+
+
 def _cron_loop():
     """Background runner loop checking and running tasks."""
     logger.info("Background Cron Daemon started.")
@@ -332,6 +441,30 @@ def _cron_loop():
                     logger.info(f"Triggered stop-loss exits for {triggered} trade(s).")
             except Exception as e:
                 logger.error(f"Error checking stop-losses in cron: {e}")
+
+            # Update database price cache if stale
+            last_price_run = get_setting("last_price_cache_run")
+            should_run_price = True
+            if last_price_run:
+                try:
+                    last_run_dt = datetime.fromisoformat(last_price_run)
+                    # Run daily by default
+                    if (now - last_run_dt) < timedelta(days=1):
+                        # If trading day & hours, run every 30 minutes to get live daily candles
+                        is_market_hours = now.weekday() < 5 and 9 <= now.hour < 16
+                        if is_market_hours and (now - last_run_dt) >= timedelta(minutes=30):
+                            should_run_price = True
+                        else:
+                            should_run_price = False
+                except Exception:
+                    pass
+
+            if should_run_price:
+                try:
+                    update_price_cache()
+                    set_setting("last_price_cache_run", datetime.now().isoformat())
+                except Exception as e:
+                    logger.error(f"Failed to update price cache in cron loop: {e}")
 
             # 1. Fingerprint backfill - run daily
             last_fp_run = get_setting("last_fingerprint_run")

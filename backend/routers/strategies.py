@@ -107,8 +107,11 @@ def get_support_resistance(
     symbol = normalize_ticker(ticker)
     t = yf.Ticker(symbol)
     hist = t.history(period=period)
+    if hist.empty:
+        return {"error": f"Insufficient data for {symbol}"}
+    hist = hist.dropna(subset=["Close"])
 
-    if hist.empty or len(hist) < 10:
+    if len(hist) < 10:
         return {"error": f"Insufficient data for {symbol}"}
 
     highs = hist["High"].tolist()
@@ -150,8 +153,11 @@ def get_pivot_points(ticker: str):
     symbol = normalize_ticker(ticker)
     t = yf.Ticker(symbol)
     hist = t.history(period="5d")
+    if hist.empty:
+        return {"error": f"Insufficient data for {symbol}"}
+    hist = hist.dropna(subset=["Close"])
 
-    if hist.empty or len(hist) < 2:
+    if len(hist) < 2:
         return {"error": f"Insufficient data for {symbol}"}
 
     # Use previous session for pivot calculation

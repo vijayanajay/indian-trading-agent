@@ -297,8 +297,16 @@ def _analyze_stock(ticker: str, allowed_strategies: dict = None) -> dict | None:
         }
     try:
         symbol = f"{ticker}.NS"
-        t = yf.Ticker(symbol)
-        hist = t.history(period="6mo")
+        
+        # Try fetching from DB cache first (6 months = 180 days)
+        from backend.db import get_stock_prices
+        hist = get_stock_prices(ticker, period_days=180)
+        
+        # Fallback to yfinance
+        if hist.empty:
+            t = yf.Ticker(symbol)
+            hist = t.history(period="6mo")
+            
         if hist.empty:
             return None
         hist = hist.dropna(subset=["Open", "High", "Low", "Close", "Volume"])

@@ -165,6 +165,19 @@ NSE_STOCKS = {
     "WHIRLPOOL": "Whirlpool of India Ltd",
 }
 
+# Load extra mappings if present
+import json
+import os
+_mappings_path = os.path.join(os.path.dirname(__file__), "liquid_1000_mappings.json")
+if os.path.exists(_mappings_path):
+    try:
+        with open(_mappings_path, "r", encoding="utf-8") as _f:
+            _extra_mappings = json.load(_f)
+            NSE_STOCKS.update(_extra_mappings)
+    except Exception as _e:
+        import logging
+        logging.warning(f"Failed to load liquid_1000_mappings.json: {_e}")
+
 
 def search_stocks(query: str, limit: int = 10) -> list[dict]:
     """Search stocks by ticker or company name. Returns matching results."""

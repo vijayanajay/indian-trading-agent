@@ -6,6 +6,8 @@ import subprocess
 import urllib.request
 import webbrowser
 import signal
+import socket
+
 
 # Configuration
 BACKEND_PORT = os.environ.get("BACKEND_PORT", "8000")
@@ -93,6 +95,44 @@ def cleanup(signum=None, frame=None):
 signal.signal(signal.SIGINT, cleanup)
 signal.signal(signal.SIGTERM, cleanup)
 
+def check_port_listening(host: str, port: int, timeout: float = 1.0) -> bool:
+    """Check if a TCP port is listening on the specified host."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+def wait_for_backend(backend_url, proc, timeout_seconds=30):
+    """Wait for backend HTTP endpoint to return 200 OK."""
+    log("Waiting for backend to be ready...")
+    for _ in range(timeout_seconds):
+        if proc and hasattr(proc, 'poll') and proc.poll() is not None:
+            err("Backend process died unexpectedly.")
+            return False
+        try:
+            with urllib.request.urlopen(backend_url, timeout=1) as response:
+                if response.status == 200:
+                    ok(f"Backend ready at {backend_url}")
+                    return True
+        except Exception:
+            pass
+        time.sleep(1)
+    return False
+
+def wait_for_frontend(host, port, proc, timeout_seconds=30):
+    """Wait for frontend TCP port to be listening."""
+    log("Waiting for frontend to be ready...")
+    for _ in range(timeout_seconds):
+        if proc and hasattr(proc, 'poll') and proc.poll() is not None:
+            err("Frontend process died unexpectedly.")
+            return False
+        if check_port_listening(host, port):
+            ok(f"Frontend ready at http://{host}:{port}")
+            return True
+        time.sleep(1)
+    return False
+
 def main():
     global backend_proc, frontend_proc
     os.chdir(ROOT_DIR)
@@ -130,37 +170,11 @@ def main():
     backend_url = f"http://localhost:{BACKEND_PORT}/api/health"
     frontend_url = f"http://localhost:{FRONTEND_PORT}"
 
-    log("Waiting for backend to be ready...")
-    for _ in range(30):
-        if backend_proc.poll() is not None:
-            err("Backend process died unexpectedly.")
-            cleanup()
-        try:
-            with urllib.request.urlopen(backend_url, timeout=1) as response:
-                if response.status == 200:
-                    ok(f"Backend ready at {backend_url}")
-                    break
-        except Exception:
-            pass
-        time.sleep(1)
-    else:
+    if not wait_for_backend(backend_url, backend_proc):
         err("Backend health check timed out.")
         cleanup()
 
-    log("Waiting for frontend to be ready...")
-    for _ in range(30):
-        if frontend_proc.poll() is not None:
-            err("Frontend process died unexpectedly.")
-            cleanup()
-        try:
-            with urllib.request.urlopen(frontend_url, timeout=1) as response:
-                if response.status == 200:
-                    ok(f"Frontend ready at {frontend_url}")
-                    break
-        except Exception:
-            pass
-        time.sleep(1)
-    else:
+    if not wait_for_frontend("localhost", int(FRONTEND_PORT), frontend_proc):
         err("Frontend health check timed out.")
         cleanup()
 

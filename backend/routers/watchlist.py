@@ -19,7 +19,8 @@ def list_watchlist():
         try:
             symbol = normalize_ticker(ticker)
             t = yf.Ticker(symbol)
-            hist = t.history(period="2d")
+            hist = t.history(period="3d")
+            hist = hist.dropna(subset=["Close"])
             if not hist.empty:
                 current = hist.iloc[-1]
                 prev = hist.iloc[-2]["Close"] if len(hist) > 1 else current["Close"]

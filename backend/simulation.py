@@ -53,6 +53,7 @@ def open_paper_trade(
     try:
         t = yf.Ticker(symbol)
         hist = t.history(period="2d")
+        hist = hist.dropna(subset=["Close"])
         if hist.empty:
             return {"ok": False, "error": f"No price data for {symbol}"}
         current_price = float(hist.iloc[-1]["Close"])
@@ -119,6 +120,7 @@ def close_paper_trade(trade_id: int) -> dict:
     try:
         t = yf.Ticker(symbol)
         hist = t.history(period="2d")
+        hist = hist.dropna(subset=["Close"])
         if hist.empty:
             return {"ok": False, "error": f"No price data for {symbol}"}
         current_price = round(float(hist.iloc[-1]["Close"]), 2)
@@ -216,7 +218,8 @@ def check_and_trigger_stop_losses() -> int:
         direction = trade.get("direction", "LONG")
         try:
             t = yf.Ticker(symbol)
-            hist = t.history(period="1d")
+            hist = t.history(period="2d")
+            hist = hist.dropna(subset=["Close"])
             if hist.empty:
                 continue
             
@@ -257,6 +260,9 @@ def _price_n_days_later(symbol: str, entry_date_str: str, n_trading_days: int) -
         end = (target + timedelta(days=1)).strftime("%Y-%m-%d")
         t = yf.Ticker(symbol)
         hist = t.history(start=start, end=end)
+        if hist.empty:
+            return None
+        hist = hist.dropna(subset=["Close"])
         if hist.empty:
             return None
 
@@ -301,7 +307,8 @@ def refresh_paper_trade_prices(trade_id: int = None) -> dict:
         # Fetch current price for marking to market
         try:
             t = yf.Ticker(symbol)
-            hist = t.history(period="1d")
+            hist = t.history(period="2d")
+            hist = hist.dropna(subset=["Close"])
             if not hist.empty:
                 current_price = float(hist.iloc[-1]["Close"])
                 entry_price = trade["entry_price"]
@@ -421,7 +428,10 @@ def _analyze_stock_at_date(ticker: str, target_date: date, regime: str | None = 
         start = (target_date - timedelta(days=200)).strftime("%Y-%m-%d")
         end = (target_date + timedelta(days=20)).strftime("%Y-%m-%d")
         hist = t.history(start=start, end=end)
-        if hist.empty or len(hist) < 50:
+        if hist.empty:
+            return None
+        hist = hist.dropna(subset=["Close"])
+        if len(hist) < 50:
             return None
 
         # Find the target date index

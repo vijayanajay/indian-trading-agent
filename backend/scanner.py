@@ -60,10 +60,25 @@ BSE_ADDITIONAL = [
 
 BSE_250 = NIFTY_100 + BSE_ADDITIONAL
 
+# Load liquid 1000 tickers if file exists
+import json
+import os
+
+_liquid_1000_path = os.path.join(os.path.dirname(__file__), "liquid_1000_tickers.json")
+if os.path.exists(_liquid_1000_path):
+    try:
+        with open(_liquid_1000_path, "r", encoding="utf-8") as _f:
+            LIQUID_1000 = json.load(_f)
+    except Exception:
+        LIQUID_1000 = []
+else:
+    LIQUID_1000 = []
+
 UNIVERSES = {
     "nifty50": NIFTY_50,
     "nifty100": NIFTY_100,
     "bse250": BSE_250,
+    "liquid1000": LIQUID_1000,
 }
 
 
@@ -75,11 +90,37 @@ def _to_native(val):
 
 
 def _fetch_stock_data(ticker: str, period: str = "3mo") -> dict | None:
-    """Fetch OHLCV data for a single stock."""
+    """Fetch OHLCV data for a single stock, reading from local DB cache if available."""
     try:
         symbol = f"{ticker}.NS"
-        t = yf.Ticker(symbol)
-        hist = t.history(period=period)
+        
+        # Determine lookback days based on period string
+        days = 90
+        if "mo" in period:
+            try:
+                days = int(period.replace("mo", "")) * 30
+            except ValueError:
+                pass
+        elif "y" in period:
+            try:
+                days = int(period.replace("y", "")) * 365
+            except ValueError:
+                pass
+        elif "d" in period:
+            try:
+                days = int(period.replace("d", ""))
+            except ValueError:
+                pass
+
+        # Try to fetch from database cache first
+        from backend.db import get_stock_prices
+        hist = get_stock_prices(ticker, period_days=days)
+        
+        # Fallback to yfinance if cache is empty
+        if hist.empty:
+            t = yf.Ticker(symbol)
+            hist = t.history(period=period)
+            
         if hist.empty:
             return None
         hist = hist.dropna(subset=["Open", "High", "Low", "Close", "Volume"])

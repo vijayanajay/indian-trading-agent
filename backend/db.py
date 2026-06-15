@@ -231,6 +231,20 @@ def ensure_db():
             );
             CREATE INDEX IF NOT EXISTS idx_corr_ticker_a ON correlation_cache(ticker_a);
             CREATE INDEX IF NOT EXISTS idx_corr_computed_at ON correlation_cache(computed_at);
+
+            -- Cache for stock prices history to optimize scanner and recommender performance
+            CREATE TABLE IF NOT EXISTS stock_prices (
+                ticker TEXT NOT NULL,
+                trade_date TEXT NOT NULL,
+                open REAL NOT NULL,
+                high REAL NOT NULL,
+                low REAL NOT NULL,
+                close REAL NOT NULL,
+                volume REAL NOT NULL,
+                PRIMARY KEY (ticker, trade_date)
+            );
+            CREATE INDEX IF NOT EXISTS idx_stock_prices_ticker ON stock_prices(ticker);
+            CREATE INDEX IF NOT EXISTS idx_stock_prices_date ON stock_prices(trade_date);
         """)
     _migrate_paper_trades_columns()
     _run_position_size_migration()
@@ -873,4 +887,39 @@ def prune_stale_correlations(max_age_days: int = 7):
             "DELETE FROM correlation_cache WHERE computed_at < datetime('now', ?)",
             (f"-{max_age_days} days",),
         )
+
+
+def get_stock_prices(ticker: str, period_days: int = 180) -> "pd.DataFrame":
+    """Get cached stock prices for a ticker as a Pandas DataFrame.
+    
+    Formatted to match yfinance.Ticker.history output structure.
+    """
+    import pandas as pd
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT trade_date, open, high, low, close, volume 
+               FROM stock_prices 
+               WHERE ticker = ? 
+               ORDER BY trade_date DESC 
+               LIMIT ?""",
+            (ticker.upper(), period_days)
+        ).fetchall()
+        
+    if not rows:
+        return pd.DataFrame()
+        
+    # We got them in DESC order, reverse to ASC for technical analysis calculations
+    rows = list(reversed(rows))
+    
+    # Convert to DataFrame
+    df = pd.DataFrame(rows, columns=["Date", "Open", "High", "Low", "Close", "Volume"])
+    df["Date"] = pd.to_datetime(df["Date"])
+    df.set_index("Date", inplace=True)
+    
+    # Convert columns to floats
+    for col in ["Open", "High", "Low", "Close", "Volume"]:
+        df[col] = df[col].astype(float)
+        
+    return df
+
 

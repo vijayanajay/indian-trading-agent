@@ -563,6 +563,7 @@ export default function SimulationPage() {
                       { v: "nifty50", l: "NIFTY 50" },
                       { v: "nifty100", l: "NIFTY 100" },
                       { v: "bse250", l: "BSE 250" },
+                      { v: "liquid1000", l: "Top 1000 Liquid" },
                     ].map((u) => (
                       <Button
                         key={u.v}

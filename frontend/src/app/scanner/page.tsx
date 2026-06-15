@@ -87,6 +87,7 @@ export default function ScannerPage() {
                   { value: "nifty50", label: "NIFTY 50" },
                   { value: "nifty100", label: "NIFTY 100" },
                   { value: "bse250", label: "BSE 250" },
+                  { value: "liquid1000", label: "Top 1000 Liquid" },
                 ].map((u) => (
                   <Button
                     key={u.value}
