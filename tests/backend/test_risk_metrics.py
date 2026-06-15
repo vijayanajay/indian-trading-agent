@@ -82,7 +82,7 @@ def test_recommender_filtering(mock_ticker):
         "sr_bounce": True
     }
     
-    result = _analyze_stock("RELIANCE", allowed_strategies=allowed)
+    result = _analyze_stock("TEST", allowed_strategies=allowed)
     assert result is not None
     # Verify breakout signal is generated
     breakout_signals = [s for s in result["signals"] if "Breakout" in s["type"]]
@@ -96,7 +96,7 @@ def test_recommender_filtering(mock_ticker):
         "sr_bounce": True
     }
     
-    result_blocked = _analyze_stock("RELIANCE", allowed_strategies=blocked)
+    result_blocked = _analyze_stock("TEST", allowed_strategies=blocked)
     assert result_blocked is not None
     # Verify breakout signal is NOT generated
     blocked_signals = [s for s in result_blocked["signals"] if "Breakout" in s["type"]]
