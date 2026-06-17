@@ -484,11 +484,13 @@ def _analyze_stock_at_date(ticker: str, target_date: date, regime: str | None = 
 
         # Support/Resistance
         if len(highs) > 60:
-            recent_high = float(np.max(highs[-60:]))
-            recent_low = float(np.min(lows[-60:]))
-            if (current_close - recent_low) / current_close * 100 < 2.0:
+            recent_high = float(np.max(highs[-61:-1]))  # 60-day high excluding today
+            recent_low = float(np.min(lows[-61:-1]))   # 60-day low excluding today
+            distance_to_high = (recent_high - current_close) / current_close * 100
+            distance_to_low = (current_close - recent_low) / current_close * 100
+            if 0 <= distance_to_low < 2.0:
                 score += W["near_support"]
-            elif (recent_high - current_close) / current_close * 100 < 2.0:
+            elif 0 <= distance_to_high < 2.0:
                 score += W["near_resistance"]
 
         # RSI

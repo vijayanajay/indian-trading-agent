@@ -368,8 +368,8 @@ def _analyze_stock(ticker: str, allowed_strategies: dict = None, fetch_if_missin
                     signals.append({"type": "Volume Spike (Bearish)", "direction": "BEARISH", "value": f"{vol_ratio:.1f}x avg", "weight": _ACTIVE_WEIGHTS["volume_bearish"]})
 
         # === BREAKOUT ===
-        recent_high = float(np.max(highs[-60:]))
-        recent_low = float(np.min(lows[-60:]))
+        recent_high = float(np.max(highs[-61:-1]))  # 60-day high excluding today
+        recent_low = float(np.min(lows[-61:-1]))   # 60-day low excluding today
         if allowed_strategies.get("breakout", True):
             n_day_high = float(np.max(highs[-21:-1]))  # 20-day high excluding today
             n_day_low = float(np.min(lows[-21:-1]))
@@ -392,10 +392,10 @@ def _analyze_stock(ticker: str, allowed_strategies: dict = None, fetch_if_missin
             distance_to_high = (recent_high - current_close) / current_close * 100
             distance_to_low = (current_close - recent_low) / current_close * 100
 
-            if distance_to_low < 2.0:  # Within 2% of 60-day low
+            if 0 <= distance_to_low < 2.0:  # Within 2% above 60-day low
                 score += _ACTIVE_WEIGHTS["near_support"]
                 signals.append({"type": "Near Major Support", "direction": "BULLISH", "value": f"{distance_to_low:.1f}% above low", "weight": _ACTIVE_WEIGHTS["near_support"]})
-            elif distance_to_high < 2.0:  # Within 2% of 60-day high
+            elif 0 <= distance_to_high < 2.0:  # Within 2% below 60-day high
                 score += _ACTIVE_WEIGHTS["near_resistance"]
                 signals.append({"type": "Near Major Resistance", "direction": "BEARISH", "value": f"{distance_to_high:.1f}% below high", "weight": _ACTIVE_WEIGHTS["near_resistance"]})
 
