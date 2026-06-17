@@ -6,11 +6,13 @@ import json
 from datetime import datetime
 from contextlib import contextmanager
 
-DB_PATH = os.path.join(os.path.expanduser("~"), ".tradingagents", "trading_agent.db")
+DB_PATH = os.environ.get("DB_PATH", os.path.join(os.path.expanduser("~"), ".tradingagents", "trading_agent.db"))
 
 
 def ensure_db():
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    db_dir = os.path.dirname(DB_PATH)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
     with get_db() as conn:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS watchlist (

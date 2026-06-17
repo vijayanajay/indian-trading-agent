@@ -7,8 +7,7 @@ import numpy as np
 import pytest
 from unittest.mock import patch, MagicMock
 
-# Set env before imports
-os.environ["DB_PATH"] = ":memory:"
+# DB_PATH env is set by conftest.py
 
 from backend.db import get_db, ensure_db, set_setting, get_setting
 from backend.signal_model import (
