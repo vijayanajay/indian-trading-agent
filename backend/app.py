@@ -2,6 +2,10 @@
 
 import sys
 import os
+import socket
+
+# Set global socket timeout to prevent indefinite hangs in external libraries (like yfinance/urllib3)
+socket.setdefaulttimeout(15)
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

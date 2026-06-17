@@ -250,6 +250,7 @@ def test_compute_daily_verdict_recommender_filters_disabled(mock_recommend, mock
         apply_market_bias=False,
         apply_event_filter=False,
         apply_concentration_check=False,
-        apply_correlation_check=False
+        apply_correlation_check=False,
+        fetch_if_missing=False
     )
 

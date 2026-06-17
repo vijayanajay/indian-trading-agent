@@ -286,7 +286,7 @@ def _recompute_assessment_and_trade_plan(result: dict, new_score: float) -> None
 
 
 
-def _analyze_stock(ticker: str, allowed_strategies: dict = None) -> dict | None:
+def _analyze_stock(ticker: str, allowed_strategies: dict = None, fetch_if_missing: bool = True) -> dict | None:
     """Analyze a single stock and return signals + score."""
     if allowed_strategies is None:
         allowed_strategies = {
@@ -304,6 +304,9 @@ def _analyze_stock(ticker: str, allowed_strategies: dict = None) -> dict | None:
         
         # Fallback to yfinance
         if hist.empty:
+            if not fetch_if_missing:
+                logger.info(f"Skipping yfinance fetch for {ticker} (fetch_if_missing=False)")
+                return None
             t = yf.Ticker(symbol)
             hist = t.history(period="6mo")
             
@@ -673,6 +676,7 @@ def recommend(
     apply_concentration_check: bool = True,
     apply_correlation_check: bool = True,
     total_capital: float = 500000,
+    fetch_if_missing: bool = True,
 ) -> dict:
     """Run recommendation engine across a stock universe.
 
@@ -683,6 +687,7 @@ def recommend(
         apply_event_filter: if True, upcoming earnings/RBI/Budget penalize scores
         apply_concentration_check: if True, penalize stocks that would over-concentrate sector
         total_capital: portfolio capital for concentration % calculation
+        fetch_if_missing: if False, skip yfinance fetches for cold caches
     """
     # Refresh learned weight overrides from settings before scoring any stock
     _refresh_active_weights()
@@ -730,7 +735,7 @@ def recommend(
 
     failed_tickers = []
     with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {executor.submit(_analyze_stock, ticker, allowed_strategies): ticker for ticker in stocks}
+        futures = {executor.submit(_analyze_stock, ticker, allowed_strategies, fetch_if_missing): ticker for ticker in stocks}
         for f in as_completed(futures):
             ticker = futures[f]
             try:

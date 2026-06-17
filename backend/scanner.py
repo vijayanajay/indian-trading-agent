@@ -169,8 +169,12 @@ def scan_volume_spikes(stocks_data: list[dict], multiplier: float = 2.0) -> list
         hist = d["hist"]
         avg_volume = hist["Volume"].iloc[:-1].mean()
         if avg_volume == 0:
-            continue
-        vol_ratio = d["current_volume"] / avg_volume
+            if d["current_volume"] > 0:
+                vol_ratio = float(d["current_volume"])  # Treat avg_volume as 1 to avoid division by zero
+            else:
+                continue
+        else:
+            vol_ratio = d["current_volume"] / avg_volume
         if vol_ratio >= multiplier:
             price_change = ((d["current_close"] - d["prev_close"]) / d["prev_close"]) * 100
             results.append({

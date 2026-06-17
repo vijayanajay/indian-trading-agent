@@ -112,6 +112,7 @@ def compute_daily_verdict() -> dict:
             apply_event_filter=False,
             apply_concentration_check=False,
             apply_correlation_check=False,   # <-- Skip network fetches for correlation
+            fetch_if_missing=False,          # <-- Bypass network fetches to prevent hanging the web thread
         )
         filter_results["recommendation_counts"] = {
             "strong_buys": len(recs["strong_buys"]),
