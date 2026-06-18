@@ -356,40 +356,18 @@ def update_price_cache(tickers_list=None, force=False) -> dict:
                 
             # Connect to database
             with get_db() as conn:
-                if isinstance(df.columns, pd.MultiIndex):
-                    for symbol in symbols:
-                        ticker = symbol.replace(".NS", "")
-                        if symbol in df.columns.levels[0]:
-                            ticker_df = df[symbol].dropna(subset=["Open", "High", "Low", "Close", "Volume"])
-                            
-                            rows_to_insert = []
-                            for date, row in ticker_df.iterrows():
-                                trade_date_str = date.strftime('%Y-%m-%d')
-                                rows_to_insert.append((
-                                    ticker,
-                                    trade_date_str,
-                                    float(row['Open']),
-                                    float(row['High']),
-                                    float(row['Low']),
-                                    float(row['Close']),
-                                    float(row['Volume'])
-                                ))
-                            
-                            if rows_to_insert:
-                                conn.executemany("""
-                                    INSERT OR REPLACE INTO stock_prices (ticker, trade_date, open, high, low, close, volume)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                                """, rows_to_insert)
-                                total_bars_saved += len(rows_to_insert)
-                                success_count += 1
-                            else:
-                                fail_count += 1
-                        else:
-                            fail_count += 1
-                else:
-                    for symbol in symbols:
-                        ticker = symbol.replace(".NS", "")
-                        ticker_df = df.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+                if not isinstance(df.columns, pd.MultiIndex):
+                    if len(symbols) == 1:
+                        df.columns = pd.MultiIndex.from_product([[symbols[0]], df.columns])
+                    else:
+                        logger.warning(f"Flat DataFrame returned for multi-ticker chunk {idx+1} ({len(symbols)} symbols). Skipping to avoid data corruption.")
+                        fail_count += len(chunk)
+                        continue
+                
+                for symbol in symbols:
+                    ticker = symbol.replace(".NS", "")
+                    if symbol in df.columns.levels[0]:
+                        ticker_df = df[symbol].dropna(subset=["Open", "High", "Low", "Close", "Volume"])
                         
                         rows_to_insert = []
                         for date, row in ticker_df.iterrows():
@@ -411,6 +389,10 @@ def update_price_cache(tickers_list=None, force=False) -> dict:
                             """, rows_to_insert)
                             total_bars_saved += len(rows_to_insert)
                             success_count += 1
+                        else:
+                            fail_count += 1
+                    else:
+                        fail_count += 1
                             
         except Exception as e:
             logger.error(f"Failed to process chunk {idx+1}: {e}")

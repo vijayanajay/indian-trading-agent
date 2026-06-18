@@ -25,8 +25,16 @@ def _load_all_trades() -> list[dict]:
     # Paper trades
     for pt in list_paper_trades():
         entry = pt.get("entry_price")
-        # Use 5d P&L as primary measure, fall back to 3d or 1d
-        pnl = pt.get("pnl_5d_pct") or pt.get("pnl_3d_pct") or pt.get("pnl_1d_pct")
+        # Use realized P&L for closed/stopped trades, fall back to 5d/3d/1d
+        pnl = None
+        if pt.get("status") != "active" and pt.get("realized_pnl_pct") is not None:
+            pnl = pt.get("realized_pnl_pct")
+        if pnl is None:
+            pnl = pt.get("pnl_5d_pct")
+            if pnl is None:
+                pnl = pt.get("pnl_3d_pct")
+                if pnl is None:
+                    pnl = pt.get("pnl_1d_pct")
         if entry is None or pnl is None:
             continue
 
