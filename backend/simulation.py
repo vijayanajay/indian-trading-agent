@@ -276,10 +276,29 @@ def _price_n_days_later(symbol: str, entry_date_str: str, n_trading_days: int) -
 
 
 def refresh_paper_trade_prices(trade_id: int = None) -> dict:
-    """Refresh prices for all active paper trades (or one specific)."""
-    trades = list_paper_trades(status="active")
+    """Refresh prices for paper trades (active ones, or a specific trade by ID)."""
     if trade_id is not None:
-        trades = [t for t in trades if t["id"] == trade_id]
+        # Retrieve the specific trade by ID regardless of status
+        all_trades = list_paper_trades()
+        trades = [t for t in all_trades if t["id"] == trade_id]
+    else:
+        # Fetch both active trades and recently closed trades that might need horizon price updates.
+        # A closed trade can still have missing horizon prices if the horizon days have just elapsed.
+        # To avoid scanning ancient history, we fetch active trades plus any trades entered within the last 30 days.
+        all_trades = list_paper_trades()
+        trades = []
+        for t in all_trades:
+            if t["status"] == "active":
+                trades.append(t)
+            elif t["status"] in ("hit_stop", "manually_closed", "expired"):
+                try:
+                    entry = datetime.strptime(t["entry_date"], "%Y-%m-%d").date()
+                    if (date.today() - entry).days <= 30:
+                        has_missing_horizon = not all([t.get("price_1d"), t.get("price_3d"), t.get("price_5d"), t.get("price_10d")])
+                        if has_missing_horizon:
+                            trades.append(t)
+                except Exception:
+                    pass
 
     updated_count = 0
     for trade in trades:
@@ -304,25 +323,26 @@ def refresh_paper_trade_prices(trade_id: int = None) -> dict:
                     if price:
                         prices[f"price_{horizon_label}"] = price
 
-        # Fetch current price for marking to market
-        try:
-            t = yf.Ticker(symbol)
-            hist = t.history(period="2d")
-            hist = hist.dropna(subset=["Close"])
-            if not hist.empty:
-                current_price = float(hist.iloc[-1]["Close"])
-                entry_price = trade["entry_price"]
-                direction = trade.get("direction", "LONG")
-                multiplier = 1 if direction == "LONG" else -1
-                prices["unrealized_pnl_pct"] = round(multiplier * (current_price - entry_price) / entry_price * 100, 2)
-        except Exception:
-            pass
+        # Fetch current price for marking to market (only for active trades)
+        if trade["status"] == "active":
+            try:
+                t = yf.Ticker(symbol)
+                hist = t.history(period="2d")
+                hist = hist.dropna(subset=["Close"])
+                if not hist.empty:
+                    current_price = float(hist.iloc[-1]["Close"])
+                    entry_price = trade["entry_price"]
+                    direction = trade.get("direction", "LONG")
+                    multiplier = 1 if direction == "LONG" else -1
+                    prices["unrealized_pnl_pct"] = round(multiplier * (current_price - entry_price) / entry_price * 100, 2)
+            except Exception:
+                pass
 
         if prices:
             update_paper_trade_prices(trade["id"], prices)
             updated_count += 1
 
-        # Auto-expire after 10 trading days
+        # Auto-expire after 10 trading days (only for active trades)
         if trading_days_elapsed > 10 and trade["status"] == "active":
             update_paper_trade_status(trade["id"], "expired")
 
@@ -338,7 +358,7 @@ def refresh_paper_trade_prices(trade_id: int = None) -> dict:
     return {
         "ok": True,
         "updated": updated_count,
-        "total_active": len(trades),
+        "total_active": len([t for t in trades if t["status"] == "active"]),
         "shadow": shadow_result,
     }
 

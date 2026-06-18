@@ -234,6 +234,9 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None,
     wilson_upper = 0.0
     avg_pnl = 0.0
     cached = False
+    avg_win = None
+    avg_loss = None
+    low_confidence = True
 
     # 1. Attempt O(1) Cache Lookup
     try:
@@ -320,17 +323,30 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None,
                         if key not in unique_trades or r["source"] == "paper":
                             unique_trades[key] = r
 
+                wins_list = []
+                losses_list = []
                 for r in unique_trades.values():
                     n_trades += 1
                     pnl = r["pnl_5d_pct"]
                     if pnl > 0:
                         wins += 1
+                        wins_list.append(pnl)
+                    elif pnl < 0:
+                        losses_list.append(pnl)
                     sum_pnl += pnl
 
                 if n_trades > 0:
                     win_rate = wins / n_trades
                     avg_pnl = sum_pnl / n_trades
                     wilson_lower, wilson_upper = wilson_confidence_interval(wins, n_trades)
+
+                # Precompute win/loss stats for Kelly sizing if CALIBRATED tier is reached later
+                avg_win = sum(wins_list) / len(wins_list) if wins_list else 0.0
+                avg_loss = sum(losses_list) / len(losses_list) if losses_list else 0.0
+                has_wins = len(wins_list) > 0
+                has_losses = len(losses_list) > 0
+                if has_wins and (has_losses or avg_win > 0.0):
+                    low_confidence = False
         except Exception:
             pass
 
@@ -383,65 +399,66 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None,
                         brier_score = round(br, 2)
                     
                     # Query average positive and absolute average negative returns
-                    avg_win = 0.0
-                    avg_loss = 0.0
-                    low_confidence = True
-                    try:
-                        with get_db() as conn:
-                            pnl_rows = conn.execute(
-                                """
-                                SELECT source, ticker, entry_date, pnl_5d_pct, signal_fingerprint, triggered_signals, regime_at_entry
-                                FROM (
-                                    SELECT 'paper' as source, ticker, entry_date, pnl_5d_pct, signal_fingerprint, triggered_signals, regime_at_entry
-                                    FROM paper_trades
-                                    WHERE pnl_5d_pct IS NOT NULL
-                                    UNION ALL
-                                    SELECT 'shadow' as source, ticker, signal_date as entry_date, pnl_5d_pct, signal_fingerprint, triggered_signals, regime_at_entry
-                                    FROM shadow_trades
-                                    WHERE pnl_5d_pct IS NOT NULL
-                                )
-                                WHERE signal_fingerprint = ? OR signal_fingerprint IS NULL
-                                """,
-                                (fingerprint,),
-                            ).fetchall()
-                            
-                            wins_list = []
-                            losses_list = []
-                            unique_pnl_trades = {}
-                            for r in pnl_rows:
-                                fp = r["signal_fingerprint"]
-                                if fp is None:
-                                    trig = r["triggered_signals"]
-                                    try:
-                                        sig_list = json.loads(trig) if trig else []
-                                    except Exception:
-                                        sig_list = []
-                                    if not isinstance(sig_list, list):
-                                        sig_list = []
-                                    sig_types = [s.get("type") for s in sig_list if isinstance(s, dict) and s.get("type")]
-                                    reg = r["regime_at_entry"]
-                                    fp = compute_fingerprint(sig_types, reg)
+                    if avg_win is None:
+                        avg_win = 0.0
+                        avg_loss = 0.0
+                        low_confidence = True
+                        try:
+                            with get_db() as conn:
+                                pnl_rows = conn.execute(
+                                    """
+                                    SELECT source, ticker, entry_date, pnl_5d_pct, signal_fingerprint, triggered_signals, regime_at_entry
+                                    FROM (
+                                        SELECT 'paper' as source, ticker, entry_date, pnl_5d_pct, signal_fingerprint, triggered_signals, regime_at_entry
+                                        FROM paper_trades
+                                        WHERE pnl_5d_pct IS NOT NULL
+                                        UNION ALL
+                                        SELECT 'shadow' as source, ticker, signal_date as entry_date, pnl_5d_pct, signal_fingerprint, triggered_signals, regime_at_entry
+                                        FROM shadow_trades
+                                        WHERE pnl_5d_pct IS NOT NULL
+                                    )
+                                    WHERE signal_fingerprint = ? OR signal_fingerprint IS NULL
+                                    """,
+                                    (fingerprint,),
+                                ).fetchall()
                                 
-                                if fp == fingerprint:
-                                    key = (r["ticker"], r["entry_date"], fp)
-                                    if key not in unique_pnl_trades or r["source"] == "paper":
-                                        unique_pnl_trades[key] = r
-                                        
-                            for r in unique_pnl_trades.values():
-                                pnl = r["pnl_5d_pct"]
-                                if pnl > 0:
-                                    wins_list.append(pnl)
-                                elif pnl < 0:
-                                    losses_list.append(pnl)
-                            
-                            avg_win = sum(wins_list) / len(wins_list) if wins_list else 0.0
-                            avg_loss = sum(losses_list) / len(losses_list) if losses_list else 0.0
-                            has_wins = len(wins_list) > 0
-                            has_losses = len(losses_list) > 0
-                            if has_wins and (has_losses or avg_win > 0.0):
-                                low_confidence = False
-                    except Exception:
-                        pass
+                                wins_list = []
+                                losses_list = []
+                                unique_pnl_trades = {}
+                                for r in pnl_rows:
+                                    fp = r["signal_fingerprint"]
+                                    if fp is None:
+                                        trig = r["triggered_signals"]
+                                        try:
+                                            sig_list = json.loads(trig) if trig else []
+                                        except Exception:
+                                            sig_list = []
+                                        if not isinstance(sig_list, list):
+                                            sig_list = []
+                                        sig_types = [s.get("type") for s in sig_list if isinstance(s, dict) and s.get("type")]
+                                        reg = r["regime_at_entry"]
+                                        fp = compute_fingerprint(sig_types, reg)
+                                    
+                                    if fp == fingerprint:
+                                        key = (r["ticker"], r["entry_date"], fp)
+                                        if key not in unique_pnl_trades or r["source"] == "paper":
+                                            unique_pnl_trades[key] = r
+                                            
+                                for r in unique_pnl_trades.values():
+                                    pnl = r["pnl_5d_pct"]
+                                    if pnl > 0:
+                                        wins_list.append(pnl)
+                                    elif pnl < 0:
+                                        losses_list.append(pnl)
+                                
+                                avg_win = sum(wins_list) / len(wins_list) if wins_list else 0.0
+                                avg_loss = sum(losses_list) / len(losses_list) if losses_list else 0.0
+                                has_wins = len(wins_list) > 0
+                                has_losses = len(losses_list) > 0
+                                if has_wins and (has_losses or avg_win > 0.0):
+                                    low_confidence = False
+                        except Exception:
+                            pass
 
                     if has_calibrated_model:
                         if low_confidence:

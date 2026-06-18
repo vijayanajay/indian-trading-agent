@@ -6,7 +6,16 @@ import json
 from datetime import datetime
 from contextlib import contextmanager
 
+import sys
+
+# Safeguard to prevent running test files directly against the production database.
+_is_testing = "pytest" in sys.modules or any("test_" in arg or "pytest" in arg for arg in sys.argv)
+if _is_testing and "DB_PATH" not in os.environ:
+    _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    os.environ["DB_PATH"] = os.path.join(_project_root, "tests", "test_trading_agent.db")
+
 DB_PATH = os.environ.get("DB_PATH", os.path.join(os.path.expanduser("~"), ".tradingagents", "trading_agent.db"))
+
 
 
 def ensure_db():
