@@ -113,3 +113,73 @@ def test_check_correlation_clustering(mock_get_avg, mock_get_pos):
     assert len(res["warnings"]) == 1
     assert "High correlation cluster" in res["warnings"][0]
 
+
+@patch("backend.concentration.get_analysis_history")
+@patch("backend.concentration.list_paper_trades")
+def test_get_open_positions_deduplication(mock_list_paper, mock_get_analysis):
+    # Mock active paper trades:
+    # 1. INFY with 15% size
+    # 2. INFY with 5% size (should merge, keeping 15% because 15% > 5%)
+    mock_list_paper.return_value = [
+        {
+            "id": 1,
+            "ticker": "INFY",
+            "direction": "LONG",
+            "entry_price": 1500.0,
+            "entry_date": "2026-06-08",
+            "strategy": "Breakout",
+            "position_size_pct": 15.0,
+        },
+        {
+            "id": 2,
+            "ticker": "INFY",
+            "direction": "LONG",
+            "entry_price": 1505.0,
+            "entry_date": "2026-06-09",
+            "strategy": "Breakout",
+            "position_size_pct": 5.0,
+        }
+    ]
+    
+    # Mock analysis history:
+    # 1. INFY with status "open" (should merge with the existing paper trade, but max(15%, fallback 10%) is still 15%)
+    # 2. TCS with status "open" (should stay with fallback size/None, representing 10% fallback)
+    mock_get_analysis.return_value = [
+        {
+            "task_id": "task-abc",
+            "ticker": "INFY",
+            "pnl_status": "open",
+            "entry_price": 1490.0,
+            "trade_date": "2026-06-07",
+            "signal": "BUY",
+        },
+        {
+            "task_id": "task-xyz",
+            "ticker": "TCS",
+            "pnl_status": "open",
+            "entry_price": 3200.0,
+            "trade_date": "2026-06-08",
+            "signal": "BUY",
+        }
+    ]
+    
+    from backend.concentration import get_open_positions
+    positions = get_open_positions()
+    
+    # We should have exactly 2 deduplicated positions (INFY and TCS), not 4.
+    assert len(positions) == 2
+    
+    # Map positions by ticker for easy assertion
+    pos_map = {p["ticker"]: p for p in positions}
+    assert "INFY" in pos_map
+    assert "TCS" in pos_map
+    
+    # INFY is merged
+    assert pos_map["INFY"]["position_size_pct"] == 15.0
+    assert pos_map["INFY"]["source"] == "merged"
+    
+    # TCS is not merged
+    assert pos_map["TCS"].get("position_size_pct") is None
+    assert pos_map["TCS"]["source"] == "real_trade"
+
+

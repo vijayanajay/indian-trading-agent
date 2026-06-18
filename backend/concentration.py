@@ -49,15 +49,22 @@ def get_sector_for_ticker(ticker: str) -> str:
 
 
 def get_open_positions() -> list[dict]:
-    """Get all open positions across paper trades + open analysis trades."""
-    positions = []
+    """Get all open positions across paper trades + open analysis trades.
+    
+    Deduplicates positions by ticker (case-insensitive) to prevent double-counting.
+    If a ticker has both an active paper trade and an open analysis trade, they 
+    are merged into a single position entry keeping the maximum of their 
+    effective position sizes.
+    """
+    merged: dict[str, dict] = {}
 
     # Paper trades that are active
     for pt in list_paper_trades(status="active"):
         ticker = pt.get("ticker", "").upper()
         if not ticker:
             continue
-        positions.append({
+        
+        pos_dict = {
             "id": f"paper-{pt.get('id')}",
             "ticker": ticker,
             "sector": get_sector_for_ticker(ticker),
@@ -67,7 +74,20 @@ def get_open_positions() -> list[dict]:
             "source": "paper_trade",
             "strategy": pt.get("strategy"),
             "position_size_pct": pt.get("position_size_pct"),
-        })
+        }
+        
+        if ticker in merged:
+            existing = merged[ticker]
+            size_existing = existing.get("position_size_pct")
+            val_existing = size_existing if size_existing is not None else 10.0
+            
+            size_new = pos_dict.get("position_size_pct")
+            val_new = size_new if size_new is not None else 10.0
+            
+            existing["position_size_pct"] = max(val_existing, val_new)
+            existing["source"] = "merged"
+        else:
+            merged[ticker] = pos_dict
 
     # Real analyses with open status
     for ah in get_analysis_history(limit=200):
@@ -75,7 +95,8 @@ def get_open_positions() -> list[dict]:
             ticker = ah.get("ticker", "").upper()
             if not ticker:
                 continue
-            positions.append({
+            
+            real_pos = {
                 "id": f"real-{ah.get('task_id')}",
                 "ticker": ticker,
                 "sector": get_sector_for_ticker(ticker),
@@ -84,9 +105,23 @@ def get_open_positions() -> list[dict]:
                 "entry_date": ah.get("trade_date"),
                 "source": "real_trade",
                 "signal": ah.get("signal"),
-            })
+            }
+            
+            if ticker in merged:
+                existing = merged[ticker]
+                size_existing = existing.get("position_size_pct")
+                val_existing = size_existing if size_existing is not None else 10.0
+                
+                val_real = 10.0
+                
+                existing["position_size_pct"] = max(val_existing, val_real)
+                existing["source"] = "merged"
+                if "signal" in real_pos and "signal" not in existing:
+                    existing["signal"] = real_pos["signal"]
+            else:
+                merged[ticker] = real_pos
 
-    return positions
+    return list(merged.values())
 
 
 def get_sector_allocation(total_capital: float = 500000) -> dict:
