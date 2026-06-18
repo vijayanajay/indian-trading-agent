@@ -789,7 +789,11 @@ def recommend(
                 result.pop("_highs", None)
                 result.pop("_lows", None)
                 result.pop("_closes", None)
-                all_results.append(result)
+                
+                if result.get("direction") == "NEUTRAL":
+                    logger.info(f"Ticker {result['ticker']} demoted to NEUTRAL by filters and excluded from recommendations")
+                else:
+                    all_results.append(result)
 
     # Separate by direction and sort
     strong_buys = sorted([r for r in all_results if r["direction"] == "STRONG BUY"], key=lambda x: -x["score"])
