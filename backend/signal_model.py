@@ -246,7 +246,7 @@ def count_closed_trades() -> int:
             rows = conn.execute(
                 """
                 SELECT COUNT(*) as cnt FROM (
-                    SELECT ticker, entry_date FROM paper_trades WHERE pnl_5d_pct IS NOT NULL
+                    SELECT ticker, entry_date FROM paper_trades WHERE pnl_5d_pct IS NOT NULL OR realized_pnl_pct IS NOT NULL
                     UNION
                     SELECT ticker, signal_date as entry_date FROM shadow_trades WHERE pnl_5d_pct IS NOT NULL
                 )
@@ -295,9 +295,11 @@ def _train_signal_model_internal() -> dict:
         with get_db() as conn:
             rows = conn.execute(
                 """
-                SELECT 'paper' as source, ticker, entry_date, triggered_signals, regime_at_entry, pnl_5d_pct, signal_fingerprint
+                SELECT 'paper' as source, ticker, entry_date, triggered_signals, regime_at_entry, 
+                       (CASE WHEN status != 'active' THEN COALESCE(realized_pnl_pct, pnl_5d_pct) ELSE pnl_5d_pct END) as pnl_5d_pct,
+                       signal_fingerprint
                 FROM paper_trades
-                WHERE pnl_5d_pct IS NOT NULL AND triggered_signals IS NOT NULL
+                WHERE (realized_pnl_pct IS NOT NULL OR pnl_5d_pct IS NOT NULL) AND triggered_signals IS NOT NULL
                 UNION ALL
                 SELECT 'shadow' as source, ticker, signal_date as entry_date, triggered_signals, regime_at_entry, pnl_5d_pct, signal_fingerprint
                 FROM shadow_trades

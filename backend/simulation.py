@@ -137,11 +137,12 @@ def close_paper_trade(trade_id: int) -> dict:
         conn.execute(
             """UPDATE paper_trades SET
                 status = 'manually_closed',
+                realized_pnl_pct = ?,
                 unrealized_pnl_pct = 0.0,
                 notes = COALESCE(notes, '') || '\nClosed at Rs.' || ? || ' on ' || date('now') || '. P&L: ' || ? || '%',
                 updated_at = datetime('now')
                WHERE id = ?""",
-            (current_price, pnl_pct, trade_id),
+            (pnl_pct, current_price, pnl_pct, trade_id),
         )
 
     # Also refresh any pending horizon prices
@@ -183,11 +184,12 @@ def hit_paper_trade_stop(trade_id: int, current_price: float = None) -> dict:
         conn.execute(
             """UPDATE paper_trades SET
                 status = 'hit_stop',
+                realized_pnl_pct = ?,
                 unrealized_pnl_pct = 0.0,
                 notes = COALESCE(notes, '') || '\nStop-loss hit at Rs.' || ? || ' on ' || date('now') || '. P&L: ' || ? || '%',
                 updated_at = datetime('now')
                WHERE id = ?""",
-            (close_price, pnl_pct, trade_id),
+            (pnl_pct, close_price, pnl_pct, trade_id),
         )
 
     # Refresh prices and set status

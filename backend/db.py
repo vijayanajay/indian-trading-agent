@@ -128,7 +128,8 @@ def ensure_db():
                 position_size_pct REAL,
                 unrealized_pnl_pct REAL DEFAULT 0.0,
                 stop_loss_price REAL,
-                risk_reward_ratio REAL
+                risk_reward_ratio REAL,
+                realized_pnl_pct REAL
             );
 
             -- Daily Verdict snapshots — measures whether the verdict actually predicted Nifty's move
@@ -591,6 +592,7 @@ def _migrate_paper_trades_columns():
             ("unrealized_pnl_pct", "REAL DEFAULT 0.0"),
             ("stop_loss_price", "REAL"),
             ("risk_reward_ratio", "REAL"),
+            ("realized_pnl_pct", "REAL"),
         ]:
             if col not in existing_paper:
                 try:
@@ -763,7 +765,12 @@ def update_paper_trade_status(trade_id: int, status: str):
     with get_db() as conn:
         if status != "active":
             conn.execute(
-                "UPDATE paper_trades SET status = ?, unrealized_pnl_pct = 0.0, updated_at = datetime('now') WHERE id = ?",
+                """UPDATE paper_trades SET 
+                    status = ?, 
+                    unrealized_pnl_pct = 0.0, 
+                    realized_pnl_pct = COALESCE(realized_pnl_pct, pnl_10d_pct, pnl_5d_pct, pnl_3d_pct, pnl_1d_pct),
+                    updated_at = datetime('now') 
+                   WHERE id = ?""",
                 (status, trade_id),
             )
         else:

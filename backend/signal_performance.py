@@ -131,10 +131,10 @@ def compute_signal_performance_by_regime(window_days: int = 180) -> dict:
     with get_db() as conn:
         rows = conn.execute(
             f"""
-            SELECT direction, signal, pnl_5d_pct, triggered_signals,
+            SELECT direction, signal, pnl_5d_pct, realized_pnl_pct, status, triggered_signals,
                    entry_date, regime_at_entry
             FROM paper_trades
-            WHERE pnl_5d_pct IS NOT NULL
+            WHERE (pnl_5d_pct IS NOT NULL OR realized_pnl_pct IS NOT NULL)
               AND triggered_signals IS NOT NULL
               AND regime_at_entry IS NOT NULL
               AND entry_date >= date('now', '-{int(window_days)} days')
@@ -157,7 +157,9 @@ def compute_signal_performance_by_regime(window_days: int = 180) -> dict:
         if not isinstance(triggered, list):
             continue
 
-        pnl = r["pnl_5d_pct"]
+        pnl = r["realized_pnl_pct"] if r["status"] != "active" else r["pnl_5d_pct"]
+        if pnl is None:
+            pnl = r["pnl_5d_pct"] or r["realized_pnl_pct"]
         if pnl is None:
             continue
 
@@ -270,13 +272,13 @@ def compute_signal_performance(window_days: int = 90) -> dict:
     """
     from backend.recommender import DEFAULT_WEIGHTS
 
-    # Pull closed trades with non-null 5d P&L
+    # Pull closed trades with non-null P&L (either realized or 5d horizon)
     with get_db() as conn:
         rows = conn.execute(
             f"""
-            SELECT direction, signal, pnl_5d_pct, triggered_signals, entry_date
+            SELECT direction, signal, pnl_5d_pct, realized_pnl_pct, status, triggered_signals, entry_date
             FROM paper_trades
-            WHERE pnl_5d_pct IS NOT NULL
+            WHERE (pnl_5d_pct IS NOT NULL OR realized_pnl_pct IS NOT NULL)
               AND triggered_signals IS NOT NULL
               AND entry_date >= date('now', '-{int(window_days)} days')
             """
@@ -295,7 +297,9 @@ def compute_signal_performance(window_days: int = 90) -> dict:
         if not isinstance(triggered, list):
             continue
 
-        pnl = r["pnl_5d_pct"]
+        pnl = r["realized_pnl_pct"] if r["status"] != "active" else r["pnl_5d_pct"]
+        if pnl is None:
+            pnl = r["pnl_5d_pct"] or r["realized_pnl_pct"]
         if pnl is None:
             continue
 
@@ -360,11 +364,29 @@ def compute_signal_performance(window_days: int = 90) -> dict:
     # Sort: most-traded signals first, then by absolute delta
     out_signals.sort(key=lambda s: (-s["n"], -abs(s["delta"])))
 
+    from backend.signal_model import load_model_coefficients, count_closed_trades
+    coefs, auc, brier = load_model_coefficients()
+    closed_trades_count = count_closed_trades()
+    last_trained_str = get_setting("model_last_trained_trade_count")
+    last_trained_count = int(last_trained_str) if last_trained_str else 0
+    
+    model_active = bool(coefs and auc is not None and brier is not None and auc > 0.55 and brier < 0.20)
+    
+    with get_db() as conn:
+        active_count = conn.execute("SELECT COUNT(*) as cnt FROM paper_trades WHERE status = 'active'").fetchone()["cnt"]
+
     return {
         "lookback_days": window_days,
         "total_closed_trades": total_closed,
         "min_sample_size": MIN_SAMPLE_SIZE,
         "signals": out_signals,
+        "model_trained": model_active,
+        "model_auc": round(auc, 3) if auc is not None else None,
+        "model_brier": round(brier, 3) if brier is not None else None,
+        "model_last_trained_count": last_trained_count,
+        "closed_trades_count": closed_trades_count,
+        "active_trades_count": active_count,
+        "retrain_threshold": 50,
     }
 
 

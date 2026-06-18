@@ -170,9 +170,11 @@ def recompute_fingerprints_and_features_for_last_180_days() -> dict:
             # Fetch all closed paper + shadow trades with non-null fingerprints
             rows = conn.execute(
                 """
-                SELECT 'paper' as source, ticker, entry_date, pnl_5d_pct, signal_fingerprint
+                SELECT 'paper' as source, ticker, entry_date, 
+                       (CASE WHEN status != 'active' THEN COALESCE(realized_pnl_pct, pnl_5d_pct) ELSE pnl_5d_pct END) as pnl_5d_pct,
+                       signal_fingerprint
                 FROM paper_trades
-                WHERE pnl_5d_pct IS NOT NULL AND signal_fingerprint IS NOT NULL
+                WHERE (realized_pnl_pct IS NOT NULL OR pnl_5d_pct IS NOT NULL) AND signal_fingerprint IS NOT NULL
                 UNION ALL
                 SELECT 'shadow' as source, ticker, signal_date as entry_date, pnl_5d_pct, signal_fingerprint
                 FROM shadow_trades

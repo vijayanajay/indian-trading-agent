@@ -67,6 +67,13 @@ To prevent repeating the same bugs and architectural mistakes, here is the list 
 ### 14. Volatility-Aware Stop-Loss / Support Integrity
 *   **The Anti-Pattern**: Collapsing a valid technical support or resistance stop-loss level to a tight ~1.5%-2% fallback distance just because it lies outside the narrow 2% ATR boundary. This places the stop-loss above the actual support level, ensuring premature stop-outs by normal intraday volatility.
 *   **The Rule**: Honor technical support/resistance levels as stop-losses up to a reasonable volatility-aware maximum cap (5% of current price). Only revert to fallback distance if the nearest support/resistance is too far (exceeds the 5% cap) or completely missing.
+### 15. Completed-Trade Event Maturity
+*   **The Anti-Pattern**: Requiring a fixed future forward return horizon (e.g. 5-day return `pnl_5d_pct`) to evaluate signal win rates, while ignoring the actual realized outcomes of trades that close early (e.g. stop-loss hits or manual closures). This locks the performance dashboard and training loop in a "cold start" state for 5 days after system deployment, even if positions are stopped out on day one.
+*   **The Rule**: Signal performance metrics and ML training loops must be decoupled from rigid calendar/holding-period horizons. If a position closes early (e.g. `hit_stop`, `manually_closed`), its final `realized_pnl_pct` must be recorded immediately in a dedicated database column and consumed by analytical queries. Active positions can fall back to the maximum elapsed horizon or 5-day returns.
+
+### 16. Transparent Calibration Zero-States
+*   **The Anti-Pattern**: Rendering blank dashboards with dashes and zeros during "cold start" phases, or showing active status messages ("Automated Probabilistic Modeling Active") when the model has not yet completed its initial training due to insufficient data.
+*   **The Rule**: Always provide clear progress tracking and fallback context. If an ML model has not accumulated enough data to calibrate, show the exact retraining progress (e.g., `X / 50` trades) and a `Cold Start` status badge indicating fallback defaults are active, preventing support overhead and UI confusion.
 
 ---
 
@@ -108,7 +115,7 @@ To prevent repeating the same bugs and architectural mistakes, here is the list 
 *   **Cron Daemon & Thread Safety**: Created a background cron daemon in [cron.py](file:///d:/Code/indian-trading-agent/backend/cron.py) to daily rebuild cache tables, weekly retrain calibration models, and check auto-stop-loss conditions. Implemented thread-safe `_RETRAIN_LOCK` around ML training passes and decoupled checks from price refresh loops.
 *   **Fallback Resolution**: Primed signal performance caches during migrations, and added direct Python-based parsing for null fingerprints to fall back dynamically on JSON signals and entry regimes rather than failing back to exploratory defaults.
 *   **Shadow Trade Direction-Aware P&L**: Updated `refresh_shadow_prices()` in `backend/shadow_trades.py` to fetch the `signal` direction from the database and apply a direction multiplier when calculating horizon P&Ls, preventing silent label inversion during signal model retraining.
-*   **Test DB Isolation Protection**: Injected automatic test-environment discovery in [db.py](file:///d:/Code/indian-trading-agent/backend/db.py) to intercept test runs and redirect queries to the local workspace test database, preventing accidental deletion of production paper trades.
+*   **Test DB Isolation Protection**: Injected automatic test-environment discovery in [db.py](file:///d:/Code/indian-trading-agent/backend/db.py) to intercept test runs and redirect queries to the local workspace test database, preventing accidental deletion of production paper trades. Resolved test isolation/pollution errors in `tests/backend/test_stop_loss.py` by introducing an autouse `setup_db` fixture to initialize database schemas on standalone test execution.
 
 ### 5. UI, API & Daily Verdict Architecture
 *   **API Deprecations**: Retired legacy manual weight overrides and weight-tuning API endpoints (`/apply`, `/reset`) by raising HTTP 400 Bad Request, and fully deprecated/removed overrides logic in recommender scoring and backtests (Option A).
@@ -118,9 +125,10 @@ To prevent repeating the same bugs and architectural mistakes, here is the list 
     *   **Simulation & Performance**: Rendered `"HOLD"` signals (colored gray, excluded from win rate calculations) on the simulation page, and added live market `<RegimeBadge />` updates and model coefficient tables on the Signal Performance page.
     *   **Risk & Position badges**: Rendered `HonestAssessmentBadge` and trade plans with entry, target, and stop-loss levels. Added a pre-trade checkbox on the dashboard to require risk acknowledgment before tracking paper trades.
     *   **Error banners**: Surfaced warning panels when yfinance limits/skipped tickers are returned in recommendations.
-
-
-
+### 6. Signal Performance & UX Diagnostics
+*   **Structured Realized P&L**: Added a `realized_pnl_pct` REAL column to `paper_trades` to capture exact exit returns immediately upon stop-loss breach or manual exit in [db.py](file:///d:/Code/indian-trading-agent/backend/db.py) and [simulation.py](file:///d:/Code/indian-trading-agent/backend/simulation.py), eliminating fragile regex-based P&L parsing from text notes.
+*   **Decoupled Maturity Horizon**: Updated the performance aggregation logic in [signal_performance.py](file:///d:/Code/indian-trading-agent/backend/signal_performance.py) and cache rebuilding in [cron.py](file:///d:/Code/indian-trading-agent/backend/cron.py) to immediately count early-exited positions using `realized_pnl_pct` rather than waiting for `pnl_5d_pct` to mature, resolving the 5-day cold start delay.
+*   **Transparent Cold Start UX**: Refactored the dashboard frontend in [page.tsx](file:///d:/Code/indian-trading-agent/frontend/src/app/signals/page.tsx) to dynamically render retraining progress (e.g. `X / 50` closed trades) and active calibration statuses (AUC, Brier score) when the model is trained, and added visual helper cards for pending active trades to resolve empty-dashboard confusion.
 
 ## Rejected Changes
 

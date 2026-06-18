@@ -43,6 +43,13 @@ type Performance = {
   total_closed_trades: number;
   min_sample_size: number;
   signals: SignalRow[];
+  model_trained?: boolean;
+  model_auc?: number | null;
+  model_brier?: number | null;
+  model_last_trained_count?: number;
+  closed_trades_count?: number;
+  active_trades_count?: number;
+  retrain_threshold?: number;
 };
 
 const helpItems = [
@@ -189,31 +196,41 @@ export default function SignalsPage() {
               <Brain className="h-6 w-6 text-purple-700 animate-pulse" />
             </div>
             <div className="flex-1 min-w-0">
-              <h3 className="font-bold text-base text-purple-900 mb-1">Automated Probabilistic Modeling Active</h3>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                The legacy manual weight-tuning system has been retired. The recommendation engine is now powered by a 
-                trained <strong className="text-purple-800 font-semibold">L1-regularized logistic regression probabilistic model</strong>.
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
-                <div className="bg-white/40 p-3 rounded-lg border border-purple-100/50">
-                  <div className="text-xs font-semibold text-purple-900 uppercase tracking-wider mb-1">How it works</div>
-                  <p className="text-xs text-muted-foreground leading-normal">
-                    The engine extracts a 28-dimensional binary feature vector (17 signals, 4 regimes, 6 interaction terms, and intercept) and fits weights dynamically.
-                  </p>
-                </div>
-                <div className="bg-white/40 p-3 rounded-lg border border-purple-100/50">
-                  <div className="text-xs font-semibold text-purple-900 uppercase tracking-wider mb-1">Model calibration</div>
-                  <p className="text-xs text-muted-foreground leading-normal">
-                    Fitted coefficients are updated via background retraining. Predictions are promoted only if the validation metrics are verified (AUC &gt; 0.55, Brier &lt; 0.20).
-                  </p>
-                </div>
-                <div className="bg-white/40 p-3 rounded-lg border border-purple-100/50">
-                  <div className="text-xs font-semibold text-purple-900 uppercase tracking-wider mb-1">This View</div>
-                  <p className="text-xs text-muted-foreground leading-normal">
-                    The statistics below show real-time performance diagnostics. They are informational to help you understand which signals work best in different regimes.
-                  </p>
-                </div>
+              <div className="flex items-center gap-2 flex-wrap mb-1">
+                <h3 className="font-bold text-base text-purple-900">
+                  {data?.model_trained ? "Automated Probabilistic Modeling Active" : "Cold Start: Baseline Weights Active"}
+                </h3>
+                <Badge variant={data?.model_trained ? "default" : "secondary"} className={data?.model_trained ? "bg-purple-600" : ""}>
+                  {data?.model_trained ? "Calibrated" : "Exploratory Phase"}
+                </Badge>
               </div>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                {data?.model_trained ? (
+                  <span>
+                    The recommendation engine is currently powered by a trained <strong className="text-purple-800 font-semibold">L1-regularized logistic regression model</strong>.
+                    Validation metrics: <strong className="text-purple-800 font-semibold">AUC: {data.model_auc}</strong> (threshold &gt; 0.55), <strong className="text-purple-800 font-semibold">Brier Score: {data.model_brier}</strong> (threshold &lt; 0.20).
+                  </span>
+                ) : (
+                  <span>
+                    The recommendation engine is currently running in exploratory mode using static baseline weights. The automated L1-regularized model will retrain and promote itself once <strong className="text-purple-800 font-semibold">{data?.retrain_threshold ?? 50}</strong> unique closed trades are accumulated.
+                  </span>
+                )}
+              </p>
+              
+              {!data?.model_trained && data && (
+                <div className="mt-3 flex items-center gap-3">
+                  <div className="text-xs font-semibold text-purple-950 uppercase tracking-wider">Retraining Progress:</div>
+                  <div className="w-48 h-2 bg-purple-100 rounded-full overflow-hidden border">
+                    <div 
+                      className="bg-purple-600 h-full rounded-full transition-all duration-500"
+                      style={{ width: `${Math.min(100, ((data.closed_trades_count ?? 0) / (data.retrain_threshold ?? 50)) * 100)}%` }}
+                    />
+                  </div>
+                  <div className="text-xs font-mono font-bold text-purple-800">
+                    {data.closed_trades_count ?? 0} / {data.retrain_threshold ?? 50} closed trades
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </CardContent>
@@ -237,6 +254,24 @@ export default function SignalsPage() {
           <RegimeBadge />
         </div>
       </div>
+
+      {data && data.total_closed_trades === 0 && (
+        <Card className="border-amber-200 bg-amber-50/10 backdrop-blur-sm">
+          <CardContent className="p-4 flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <h4 className="font-semibold text-amber-900 text-sm">No Closed Trades Recorded Yet</h4>
+              <p className="text-xs text-muted-foreground mt-1 leading-normal">
+                {data.active_trades_count && data.active_trades_count > 0 ? (
+                  `Waiting for ${data.active_trades_count} active paper trade(s) to mature. Signal performance statistics will update automatically as soon as trades close or reach their maturity horizon (5 trading days from entry).`
+                ) : (
+                  "There are currently no active or closed paper trades in the database. Add symbols to your Watchlist and open paper trades on the Dashboard to start tracking signal diagnostics."
+                )}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Per-signal table */}
       <Card>

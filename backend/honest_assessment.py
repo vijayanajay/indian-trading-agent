@@ -42,7 +42,7 @@ def get_portfolio_drawdown(max_age_minutes: int = 15) -> float:
             rows = conn.execute(
                 """SELECT id, ticker, entry_datetime, entry_date, status, notes, 
                           pnl_1d_pct, pnl_3d_pct, pnl_5d_pct, pnl_10d_pct, updated_at,
-                          position_size_pct, unrealized_pnl_pct, entry_price, direction
+                          position_size_pct, unrealized_pnl_pct, entry_price, direction, realized_pnl_pct
                    FROM paper_trades"""
             ).fetchall()
         if not rows:
@@ -110,16 +110,17 @@ def get_portfolio_drawdown(max_age_minutes: int = 15) -> float:
                         pass
             
             # Determine P&L
-            pnl = None
-            if status == "active":
-                pnl = unrealized_pnl
-            elif status in ("manually_closed", "hit_stop") and r["notes"]:
-                match = re.search(r"P&L:\s*([\-\d\.]+)%", r["notes"])
-                if match:
-                    try:
-                        pnl = float(match.group(1))
-                    except ValueError:
-                        pass
+            pnl = r["realized_pnl_pct"] if r["realized_pnl_pct"] is not None else None
+            if pnl is None:
+                if status == "active":
+                    pnl = unrealized_pnl
+                elif status in ("manually_closed", "hit_stop") and r["notes"]:
+                    match = re.search(r"P&L:\s*([\-\d\.]+)%", r["notes"])
+                    if match:
+                        try:
+                            pnl = float(match.group(1))
+                        except ValueError:
+                            pass
             if pnl is None:
                 for k in ["pnl_10d_pct", "pnl_5d_pct", "pnl_3d_pct", "pnl_1d_pct"]:
                     if r[k] is not None:
@@ -286,9 +287,11 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None,
                     """
                     SELECT source, ticker, entry_date, pnl_5d_pct, signal_fingerprint, triggered_signals, regime_at_entry
                     FROM (
-                        SELECT 'paper' as source, ticker, entry_date, pnl_5d_pct, signal_fingerprint, triggered_signals, regime_at_entry
+                        SELECT 'paper' as source, ticker, entry_date, 
+                               (CASE WHEN status != 'active' THEN COALESCE(realized_pnl_pct, pnl_5d_pct) ELSE pnl_5d_pct END) as pnl_5d_pct,
+                               signal_fingerprint, triggered_signals, regime_at_entry
                         FROM paper_trades
-                        WHERE pnl_5d_pct IS NOT NULL
+                        WHERE pnl_5d_pct IS NOT NULL OR realized_pnl_pct IS NOT NULL
                         UNION ALL
                         SELECT 'shadow' as source, ticker, signal_date as entry_date, pnl_5d_pct, signal_fingerprint, triggered_signals, regime_at_entry
                         FROM shadow_trades
@@ -409,9 +412,11 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None,
                                     """
                                     SELECT source, ticker, entry_date, pnl_5d_pct, signal_fingerprint, triggered_signals, regime_at_entry
                                     FROM (
-                                        SELECT 'paper' as source, ticker, entry_date, pnl_5d_pct, signal_fingerprint, triggered_signals, regime_at_entry
+                                        SELECT 'paper' as source, ticker, entry_date, 
+                                               (CASE WHEN status != 'active' THEN COALESCE(realized_pnl_pct, pnl_5d_pct) ELSE pnl_5d_pct END) as pnl_5d_pct,
+                                               signal_fingerprint, triggered_signals, regime_at_entry
                                         FROM paper_trades
-                                        WHERE pnl_5d_pct IS NOT NULL
+                                        WHERE pnl_5d_pct IS NOT NULL OR realized_pnl_pct IS NOT NULL
                                         UNION ALL
                                         SELECT 'shadow' as source, ticker, signal_date as entry_date, pnl_5d_pct, signal_fingerprint, triggered_signals, regime_at_entry
                                         FROM shadow_trades

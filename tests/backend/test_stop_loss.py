@@ -5,6 +5,11 @@ from unittest.mock import patch, MagicMock
 from backend.recommender import compute_atr, _analyze_stock
 from backend.honest_assessment import get_honest_assessment, compute_fingerprint
 from backend.simulation import open_paper_trade, hit_paper_trade_stop, check_and_trigger_stop_losses
+from backend.db import ensure_db
+
+@pytest.fixture(autouse=True)
+def setup_db():
+    ensure_db()
 
 def test_compute_atr():
     closes = [100.0] * 20
