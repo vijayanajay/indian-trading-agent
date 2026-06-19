@@ -90,24 +90,37 @@ def snapshot_today(force: bool = False) -> dict:
     return {"status": "ok", "date": today, "verdict": verdict_data.get("verdict"), "nifty_close": nifty_close}
 
 
-def _get_nifty_close_for_date(d: str) -> Optional[float]:
-    """Fetch Nifty close for a given date. Returns None if market closed/holiday."""
+def _get_nifty_close_for_date(d: str, direction: str = "backward") -> Optional[float]:
+    """Fetch Nifty close for a given date. Returns None if market closed/holiday.
+
+    Args:
+        d: Date string in ISO format.
+        direction: "backward" to fall back to the most recent prior trading day, or
+                   "forward" to fall back to the next available trading day.
+    """
     try:
         target = datetime.fromisoformat(d).date()
         # Pull a small window around the date to handle weekends/holidays
+        # Extend forward window to 5 days to ensure we capture the next trading day
         start = target - timedelta(days=5)
-        end = target + timedelta(days=2)
+        end = target + timedelta(days=5)
         hist = yf.Ticker(NIFTY_SYMBOL).history(start=start.isoformat(), end=end.isoformat())
         if hist.empty:
             return None
-        # Match exact date; fall back to most recent prior trading day
+        # Match exact date
         for idx, row in hist.iterrows():
             if idx.date() == target:
                 return float(row["Close"])
-        # Latest close <= target (handles weekends — snapshot taken on Sunday uses Friday)
-        before = hist[hist.index.date <= target]
-        if not before.empty:
-            return float(before.iloc[-1]["Close"])
+        if direction == "forward":
+            # Next close >= target (handles holidays/gaps for future horizons)
+            after = hist[hist.index.date >= target]
+            if not after.empty:
+                return float(after.iloc[0]["Close"])
+        else:
+            # Latest close <= target (handles weekends — snapshot taken on Sunday uses Friday)
+            before = hist[hist.index.date <= target]
+            if not before.empty:
+                return float(before.iloc[-1]["Close"])
     except Exception:
         pass
     return None
@@ -154,7 +167,7 @@ def backfill_outcomes(max_age_days: int = 30) -> dict:
             if target > today:
                 continue  # not ripe yet
 
-            close = _get_nifty_close_for_date(target.isoformat())
+            close = _get_nifty_close_for_date(target.isoformat(), direction="forward")
             if close is None:
                 continue
 

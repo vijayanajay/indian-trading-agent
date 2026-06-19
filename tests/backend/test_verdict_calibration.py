@@ -1,6 +1,8 @@
 import pytest
 from datetime import date
-from backend.verdict_calibration import _add_trading_days, _classify_outcome
+import pandas as pd
+from unittest.mock import patch, MagicMock
+from backend.verdict_calibration import _add_trading_days, _classify_outcome, _get_nifty_close_for_date
 
 def test_add_trading_days_basic():
     # Monday 2026-06-08 + 1 trading day = Tuesday 2026-06-09
@@ -70,3 +72,27 @@ def test_classify_outcome_yellow():
     assert _classify_outcome("YELLOW", -0.25) == "predicted_correctly"
     assert _classify_outcome("YELLOW", 0.55) == "predicted_wrong"
     assert _classify_outcome("YELLOW", -0.55) == "predicted_wrong"
+
+
+def test_get_nifty_close_for_date():
+    # Create mock history DataFrame
+    dates = pd.to_datetime(["2026-06-08", "2026-06-10", "2026-06-12"])
+    mock_df = pd.DataFrame({"Close": [100.0, 110.0, 120.0]}, index=dates)
+
+    mock_ticker = MagicMock()
+    mock_ticker.history.return_value = mock_df
+
+    with patch("yfinance.Ticker", return_value=mock_ticker):
+        # Case 1: Exact match found
+        close = _get_nifty_close_for_date("2026-06-10")
+        assert close == 110.0
+
+        # Case 2: Exact match not found, direction="backward" (default)
+        # Target is 2026-06-09. Prior date is 2026-06-08.
+        close_back = _get_nifty_close_for_date("2026-06-09", direction="backward")
+        assert close_back == 100.0
+
+        # Case 3: Exact match not found, direction="forward"
+        # Target is 2026-06-09. Next date is 2026-06-10.
+        close_fwd = _get_nifty_close_for_date("2026-06-09", direction="forward")
+        assert close_fwd == 110.0

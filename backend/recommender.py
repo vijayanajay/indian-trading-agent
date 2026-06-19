@@ -143,7 +143,9 @@ def _update_trade_plan(result: dict) -> None:
     from backend.routers.strategies import _find_support_resistance
     sr = _find_support_resistance(highs, lows, closes)
     atr_val = compute_atr(highs, lows, closes, 14)
-    fallback_dist = min(0.02 * current_close, 2 * atr_val) if atr_val > 0 else 0.02 * current_close
+    # Volatility-based fallback: 2 * ATR. If ATR is not available, default to 5% of close.
+    # Floor it at 2% to avoid extremely tight stops during periods of near-zero volatility.
+    fallback_dist = max(0.02 * current_close, 2 * atr_val) if atr_val > 0 else 0.05 * current_close
 
     suggested_stop_loss = None
     invalidation_reason = None
@@ -153,14 +155,14 @@ def _update_trade_plan(result: dict) -> None:
     if trade_dir == "LONG":
         nearest_support = sr["supports"][0]["level"] if sr["supports"] else None
         # Safeguard: Do not collapse the stop-loss to a tight 2% fallback if the support level is valid
-        # and within a reasonable maximum boundary (5% of current price or fallback_dist).
-        max_support_dist = max(fallback_dist, 0.05 * current_close)
+        # and within a reasonable maximum boundary (15% of current price or fallback_dist).
+        max_support_dist = max(fallback_dist, 0.15 * current_close)
         if nearest_support and current_close - nearest_support > 0 and (current_close - nearest_support) <= max_support_dist:
             suggested_stop_loss = round(nearest_support, 2)
             invalidation_reason = f"Nearest support level of Rs. {nearest_support:.2f} breached"
         else:
             suggested_stop_loss = round(current_close - fallback_dist, 2)
-            invalidation_reason = "Max 2% ATR-based fallback stop-loss breached"
+            invalidation_reason = "Max ATR-based fallback stop-loss breached"
 
         # Target calculation (nearest resistance or 2x risk)
         nearest_resistance = sr["resistances"][0]["level"] if sr["resistances"] else None
@@ -176,14 +178,14 @@ def _update_trade_plan(result: dict) -> None:
     elif trade_dir == "SHORT":
         nearest_resistance = sr["resistances"][0]["level"] if sr["resistances"] else None
         # Safeguard: Do not collapse the stop-loss to a tight 2% fallback if the resistance level is valid
-        # and within a reasonable maximum boundary (5% of current price or fallback_dist).
-        max_resistance_dist = max(fallback_dist, 0.05 * current_close)
+        # and within a reasonable maximum boundary (15% of current price or fallback_dist).
+        max_resistance_dist = max(fallback_dist, 0.15 * current_close)
         if nearest_resistance and nearest_resistance - current_close > 0 and (nearest_resistance - current_close) <= max_resistance_dist:
             suggested_stop_loss = round(nearest_resistance, 2)
             invalidation_reason = f"Nearest resistance level of Rs. {nearest_resistance:.2f} breached"
         else:
             suggested_stop_loss = round(current_close + fallback_dist, 2)
-            invalidation_reason = "Max 2% ATR-based fallback stop-loss breached"
+            invalidation_reason = "Max ATR-based fallback stop-loss breached"
 
         # Target calculation (nearest support or 2x risk)
         nearest_support = sr["supports"][0]["level"] if sr["supports"] else None

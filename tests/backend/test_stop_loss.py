@@ -50,11 +50,11 @@ def test_recommender_stop_loss_fallback(mock_ticker, mock_rsi):
     dates = pd.date_range(end="2026-06-07", periods=60)
     volumes = [1000] * 59 + [2000] # Volume spike to trigger confirmed breakout
     
-    # 20-day high is 91.0. 60-day high is 110.0. Today is a breakout at 100.0. Support is 90.0 (too far).
-    opens = [110.0] * 39 + [90.0] * 20 + [99.5]
-    highs = [110.0] * 39 + [91.0] * 20 + [101.0]
-    lows = [90.0] * 59 + [99.5]
-    closes = [110.0] * 39 + [90.0] * 20 + [100.0]
+    # 20-day high is 80.0. 60-day high is 80.0. Today is a breakout at 100.0. Support is 80.0 (too far).
+    opens = [80.0] * 59 + [99.5]
+    highs = [80.0] * 59 + [101.0]
+    lows = [80.0] * 59 + [99.5]
+    closes = [80.0] * 59 + [100.0]
     
     df = pd.DataFrame({
         "Open": opens, "High": highs, "Low": lows, "Close": closes, "Volume": volumes
@@ -64,9 +64,9 @@ def test_recommender_stop_loss_fallback(mock_ticker, mock_rsi):
     result = _analyze_stock("TEST", allowed_strategies={"breakout": True})
     assert result is not None
     assert result["suggested_stop_loss"] is not None
-    # 2% ATR fallback of 100 is 98.0
-    assert result["suggested_stop_loss"] == 98.0
-    assert "Max 2% ATR-based fallback" in result["invalidation_reason"]
+    # ATR fallback of 100 with ATR of 1.5 is 97.0
+    assert result["suggested_stop_loss"] == 97.0
+    assert "Max ATR-based fallback" in result["invalidation_reason"]
 
 def test_honest_assessment_with_rr():
     # Test that get_honest_assessment uses risk_reward_ratio as Kelly b
