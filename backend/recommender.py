@@ -10,6 +10,7 @@ For each stock in the universe:
 import yfinance as yf
 import numpy as np
 import logging
+import math
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from backend.scanner import NIFTY_50, NIFTY_100, BSE_250, UNIVERSES
@@ -471,7 +472,7 @@ def _analyze_stock(ticker: str, allowed_strategies: dict = None, fetch_if_missin
             "symbol": symbol,
             "price": round(current_close, 2),
             "change_pct": round(price_change_day, 2),
-            "rsi": round(rsi, 1) if rsi else None,
+            "rsi": round(rsi, 1) if (rsi is not None and not math.isnan(rsi)) else None,
             "score": round(score, 2),
             "direction": "BUY" if trade_dir == "LONG" else ("SELL" if trade_dir == "SHORT" else "NEUTRAL"),
             "signals": signals,

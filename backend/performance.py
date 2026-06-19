@@ -10,6 +10,7 @@ All analysis is FREE — no AI API calls, pure price math from yfinance.
 
 import yfinance as yf
 import numpy as np
+import math
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from backend.scanner import NIFTY_50, NIFTY_100, BSE_250
@@ -352,7 +353,7 @@ def _summarize_trades(trades: list[dict], hold_days: list[int], strategy_name: s
     for hd in hold_days:
         key = f"day_{hd}"
         valid_returns = [t["returns"].get(key) for t in trades if key in t["returns"]]
-        valid_returns = [r for r in valid_returns if r is not None]
+        valid_returns = [r for r in valid_returns if r is not None and not math.isnan(r)]
 
         if not valid_returns:
             continue

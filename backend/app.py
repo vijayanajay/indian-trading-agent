@@ -15,10 +15,30 @@ load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file_
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
+import math
+from typing import Any
 from backend.db import ensure_db
 from backend.routers import market_data, analysis, watchlist, backtest, strategies, scanner, performance, recommender, settings as settings_router, news as news_router, simulation as simulation_router, insights as insights_router, fii_dii as fii_dii_router, calendar as calendar_router, concentration as concentration_router, daily_verdict as daily_verdict_router, signal_performance as signal_performance_router, verdict_calibration as verdict_calibration_router, regime as regime_router, confidence_calibration as confidence_calibration_router, shadow_trades as shadow_trades_router, memory as memory_router
 from backend.settings_manager import load_api_keys_into_env, apply_llm_config_to_default
+
+
+def sanitize_nans(val: Any) -> Any:
+    """Recursively convert float('nan') values in dictionaries or lists to None (JSON null)."""
+    if isinstance(val, float) and math.isnan(val):
+        return None
+    elif isinstance(val, dict):
+        return {k: sanitize_nans(v) for k, v in val.items()}
+    elif isinstance(val, list):
+        return [sanitize_nans(x) for x in val]
+    return val
+
+
+class SafeJSONResponse(JSONResponse):
+    """Custom JSONResponse that sanitizes NaN floats to None before serialization."""
+    def render(self, content: Any) -> bytes:
+        return super().render(sanitize_nans(content))
 
 
 @asynccontextmanager
@@ -42,6 +62,7 @@ app = FastAPI(
     description="AI-powered short-term trading decisions for NSE/BSE",
     version="0.1.0",
     lifespan=lifespan,
+    default_response_class=SafeJSONResponse,
 )
 
 app.add_middleware(

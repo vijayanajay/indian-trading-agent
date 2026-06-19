@@ -472,15 +472,18 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None,
                             message = "DO NOT TRADE (insufficient win/loss data for Kelly sizing)"
                         else:
                             if avg_loss == 0.0:
-                                b = risk_reward_ratio if (risk_reward_ratio is not None and risk_reward_ratio > 0) else 1.0
+                                b = risk_reward_ratio if (risk_reward_ratio is not None and not math.isnan(risk_reward_ratio) and risk_reward_ratio > 0) else 1.0
                             else:
-                                b = risk_reward_ratio if (risk_reward_ratio is not None and risk_reward_ratio > 0) else (avg_win / abs(avg_loss))
+                                b = risk_reward_ratio if (risk_reward_ratio is not None and not math.isnan(risk_reward_ratio) and risk_reward_ratio > 0) else (avg_win / abs(avg_loss))
                             
                             # Full Kelly formula
                             q = 1.0 - p
-                            k_frac = (p * b - q) / b
+                            if b is not None and not math.isnan(b) and b > 0:
+                                k_frac = (p * b - q) / b
+                            else:
+                                k_frac = 0.0
                             
-                            if k_frac < 0.0:
+                            if k_frac < 0.0 or math.isnan(k_frac):
                                 kelly_pct = 0.0
                                 suggested_size = 0.0
                                 message = "DO NOT TRADE"
@@ -489,11 +492,11 @@ def get_honest_assessment(signals: list[dict], score: float, regime: str | None,
                                 if kelly_pct > 15.0:
                                     kelly_pct = 15.0
                                 
-                                suggested_size = max(1.0, kelly_pct)
+                                suggested_size = max(1.0, kelly_pct) if (kelly_pct is not None and not math.isnan(kelly_pct)) else 5.0
                                 
                                 # Check portfolio drawdown ceiling
                                 drawdown = get_portfolio_drawdown()
-                                if drawdown > 10.0:
+                                if drawdown > 10.0 or math.isnan(drawdown):
                                     kelly_pct = 0.0
                                     suggested_size = 0.0
                                     message = f"DO NOT TRADE (portfolio drawdown > 10%)"
