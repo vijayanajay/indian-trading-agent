@@ -254,3 +254,28 @@ def test_compute_daily_verdict_recommender_filters_disabled(mock_recommend, mock
         fetch_if_missing=False
     )
 
+
+@patch("backend.fii_dii.get_market_bias")
+@patch("backend.calendar_data.get_market_events_in_range")
+@patch("backend.concentration.get_concentration_summary")
+@patch("backend.recommender.recommend")
+def test_compute_daily_verdict_all_tickers_failed_triggers_red_verdict(mock_recommend, mock_conc, mock_events, mock_bias):
+    mock_bias.return_value = {"bias": "BULLISH", "confidence": "LOW"}
+    mock_events.return_value = []
+    mock_conc.return_value = {"risk_level": "LOW"}
+    mock_recommend.return_value = {
+        "universe": "nifty50",
+        "total_analyzed": 50,
+        "total_with_signals": 0,
+        "failed_tickers": [f"TICKER{i}" for i in range(50)],
+        "strong_buys": [], "buys": [], "sells": []
+    }
+
+    res = compute_daily_verdict()
+    assert res["verdict"] == "RED"
+    assert res["label"] == "STAND DOWN"
+    assert res["max_trades_today"] == 0
+    assert res["recommended_position_size_pct"] == 0.0
+    assert "Recommender unavailable" in res["action"]
+
+

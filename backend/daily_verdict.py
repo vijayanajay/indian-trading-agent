@@ -101,6 +101,7 @@ def compute_daily_verdict() -> dict:
         filter_results["concentration"] = None
 
     # === 4. Quick scan: how many HIGH-conviction setups exist? ===
+    recs = None
     high_conviction_count = 0
     try:
         # Lightweight check — analyze NIFTY 50 only for speed
@@ -134,7 +135,15 @@ def compute_daily_verdict() -> dict:
 
     # === DECISION LOGIC ===
     rec_counts = filter_results.get("recommendation_counts")
-    recommender_failed = (rec_counts is None)
+    recommender_failed = (
+        rec_counts is None
+        or recs is None
+        or (
+            "total_analyzed" in recs
+            and recs.get("total_analyzed", 0) > 0
+            and len(recs.get("failed_tickers", [])) >= recs.get("total_analyzed", 0)
+        )
+    )
 
     if recommender_failed:
         verdict = "RED"
